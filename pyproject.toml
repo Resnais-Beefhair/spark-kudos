@@ -1,0 +1,65 @@
+[project]
+name = "sisu-kudos"
+version = "0.5.0"
+description = "Configurable read-only operations dashboard for one or two NVIDIA DGX Spark systems"
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["dgx-spark", "gb10", "monitoring", "dashboard", "gpu", "unified-memory"]
+classifiers = [
+  "Development Status :: 4 - Beta",
+  "Environment :: Web Environment",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.14",
+]
+requires-python = ">=3.12"
+dependencies = [
+  "fastapi>=0.115,<1",
+  "uvicorn[standard]>=0.34,<1",
+  "psutil>=6,<8",
+]
+
+[project.optional-dependencies]
+dev = [
+  "httpx>=0.28,<1",
+  "pytest>=8,<9",
+  "pytest-asyncio>=1,<2",
+  "ruff>=0.11,<1",
+  "websocket-client>=1.8,<2",
+]
+
+[project.urls]
+Homepage = "https://github.com/Resnais-Beefhair/spark-kudos"
+Repository = "https://github.com/Resnais-Beefhair/spark-kudos"
+Documentation = "https://github.com/Resnais-Beefhair/spark-kudos/tree/main/docs"
+Issues = "https://github.com/Resnais-Beefhair/spark-kudos/issues"
+Changelog = "https://github.com/Resnais-Beefhair/spark-kudos/blob/main/CHANGELOG.md"
+
+[project.scripts]
+sisu-kudos = "sisu_kudos.__main__:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/sisu_kudos"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+  "src/", "tests/", "scripts/", "docs/", "examples/", "deploy/", ".github/",
+  "*.md", "LICENSE", "pyproject.toml", "uv.lock",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]

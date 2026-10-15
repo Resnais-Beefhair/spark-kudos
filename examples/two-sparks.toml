@@ -1,0 +1,34 @@
+# Replace the SSH route and expected hostname with your own existing verified host.
+[server]
+host = "127.0.0.1"
+port = 8787
+
+[site]
+language = "en"
+
+[hosts.local]
+id = "spark-one"
+label = "Spark 1"
+role = "agents-services"
+
+[hosts.remote]
+enabled = true
+target = "spark-two" # Existing ssh destination/alias; noninteractive verified access required.
+expected_hostname = "spark-two" # Must match remote socket.gethostname(), not necessarily its alias.
+id = "spark-two"
+label = "Spark 2"
+role = "model-server"
+python = "python3" # Or one absolute remote executable path, without arguments.
+# gpu_state_path = "/var/lib/gpu-telemetry/state.json"
+# model_url = "http://127.0.0.1:8000" # Accessed from the REMOTE host.
+
+[system]
+network_interfaces = []
+disk_mounts = ["/"]
+
+[integrations]
+agents = false
+logs = false
+crons = false
+resources = false
+quotas = false

@@ -1,0 +1,25 @@
+# Minimal standalone deployment. No agent framework, service or remote host required.
+[server]
+host = "127.0.0.1"
+port = 8787
+
+[site]
+language = "en" # Set to "fi" for Finnish unless a browser has its own preference.
+
+[hosts.local]
+id = "spark-one"
+label = "Spark 1"
+role = "agents-services"
+
+[system]
+network_interfaces = [] # Auto-select physical interfaces; set explicit names if needed.
+disk_mounts = ["/"]
+# gpu_state_path = "/var/lib/gpu-telemetry/state.json" # Existing producer, not installed by KUDOS.
+# model_url = "http://127.0.0.1:8000" # Optional vLLM-compatible endpoints.
+
+[integrations]
+agents = false
+logs = false
+crons = false
+resources = false
+quotas = false

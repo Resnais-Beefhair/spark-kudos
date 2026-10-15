@@ -1,0 +1,24 @@
+name: Bug report
+description: Report a reproducible problem without private operational data.
+body:
+  - type: markdown
+    attributes:
+      value: Do not attach production snapshots, logs, addresses, credentials or agent prompts.
+  - type: textarea
+    id: description
+    attributes:
+      label: Problem and expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps and minimal redacted configuration
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: KUDOS version, OS and hardware
+    validations:
+      required: true

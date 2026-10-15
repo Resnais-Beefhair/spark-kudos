@@ -1,0 +1,327 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="theme-color" content="#11120f" />
+    <title>KUDOS</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%2311120f%22/><path d=%22M8 22V13h4v9zm6 0V7h4v15zm6 0V10h4v12z%22 fill=%22%23cac7bb%22/></svg>"
+    />
+    <link rel="stylesheet" href="/assets/styles.css?v=0.5.0" />
+    <script src="/assets/i18n.js?v=0.5.0" defer></script>
+    <script src="/assets/hosts.js?v=0.5.0" defer></script>
+    <script src="/assets/telemetry.js?v=0.5.0" defer></script>
+    <script src="/assets/app.js?v=0.5.0" defer></script>
+  </head>
+  <body>
+    <a class="skip-link" href="#host-panels" data-i18n="skip">Skip to dashboard</a>
+    <header class="masthead">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"><i></i><i></i></span
+        ><strong>KUDOS</strong><span id="version">v0.5.0</span>
+      </div>
+      <dl
+        class="work-stats header-stats"
+        aria-label="KUDOS dashboard summary"
+        data-i18n-aria="stats.summary"
+      >
+        <div>
+          <dt data-i18n="stats.active">ACTIVE</dt>
+          <dd id="active-count">–</dd>
+        </div>
+        <div>
+          <dt data-i18n="stats.gpuProcesses">GPU PROCESSES</dt>
+          <dd id="gpu-process-count">–</dd>
+        </div>
+        <div>
+          <dt data-i18n="stats.load">SYSTEM LOAD</dt>
+          <dd id="unbound-load">–</dd>
+        </div>
+      </dl>
+      <div class="head-right">
+        <label class="sr-only" for="language-select" data-i18n="language.label">Language</label>
+        <select id="language-select" class="language-select">
+          <option value="en">English</option>
+          <option value="fi">Suomi</option>
+        </select>
+        <span id="connection" class="connection"><i></i><span data-i18n="connection.connecting">CONNECTING</span></span
+        ><time id="clock">--.--.--</time>
+      </div>
+    </header>
+    <main>
+      <section class="capacity" aria-label="Capacity and status" data-i18n-aria="capacity.label">
+        <button id="quota-control" class="capacity-cell" hidden data-inspect="quota:chatgpt">
+          <span class="cap-name" data-i18n="quota.name">QUOTA</span
+          ><strong id="chatgpt-value">–</strong
+          ><span id="chatgpt-note" class="cap-note" data-i18n="quota.waiting">waiting for data</span
+          ><span class="life"><i id="chatgpt-life"></i></span>
+        </button>
+        <button class="capacity-cell dual-power" data-inspect="power:gpu">
+          <span class="cap-name" data-i18n="power.name">GPU POWER</span>
+          <span id="power-readings" class="power-readings"></span>
+          <span id="power-note" class="cap-note" data-i18n="power.note">GPU power · not wall power</span>
+        </button>
+        <button
+          id="attention-button"
+          class="attention-cell"
+          aria-haspopup="dialog"
+        >
+          <span id="attention-stamp" class="stamp" data-i18n="attention.stamp">STATUS</span
+          ><strong id="attention-title" data-i18n="attention.titleClear">No new issues</strong
+          ><span id="attention-note" data-i18n="attention.clearSummary">Collectors, agents, and logs are clear</span>
+        </button>
+      </section>
+
+      <section id="work-section" class="work" hidden aria-labelledby="work-title">
+        <div class="section-label">
+          <span data-i18n="work.section">WORK REGISTER</span>
+          <h2 id="work-title" data-i18n="work.title">Now running</h2>
+          <button id="activity-motion" class="motion-toggle" type="button" aria-pressed="true" data-i18n="work.motionOn">Motion on</button>
+        </div>
+        <div id="work-list" class="work-list" tabindex="-1">
+          <p class="empty" data-i18n="work.empty">No active agent sessions or cron runs.</p>
+        </div>
+      </section>
+
+      <section id="agent-resources-section" class="agent-resources" hidden aria-labelledby="agent-resources-title">
+        <div class="section-label">
+          <span data-i18n="agents.resourcesLabel">AGENT RESOURCE REGISTER</span>
+          <h2 id="agent-resources-title" data-i18n="agents.resourcesTitle">Agent resources</h2>
+          <p class="resource-source-note">
+            <span data-i18n="agents.resourcesSource">Reported by the registry; ownership is not independently verified.</span>
+          </p>
+        </div>
+        <div id="agent-resource-list" class="agent-resource-list">
+          <div id="agent-resource-status" class="resource-registry-status" role="status">
+            <span data-i18n="agents.resourcesUnavailable">Resource registry unavailable.</span>
+          </div>
+          <label class="resource-history-toggle"><input id="agent-resource-show-closed" type="checkbox"> <span data-i18n="agents.showClosed">Show closed resources too</span></label>
+          <div id="agent-resource-rows" class="agent-resource-rows">
+            <p class="empty" data-i18n="agents.resourcesWaiting">Waiting for the local resource registry.</p>
+          </div>
+          <ul id="agent-resource-warnings" class="resource-registry-warnings"></ul>
+        </div>
+      </section>
+
+      <section class="dual-hosts" aria-label="Host resources" data-i18n-aria="host.section">
+        <div
+          id="host-panels"
+          class="host-panels"
+          aria-label="Host resources"
+          data-i18n-aria="host.section"
+          tabindex="-1"
+        ></div>
+        <p class="resource-key">
+          <span data-i18n="resources.usageHint">Bar = current use · select for history and processes</span>
+          <span><i aria-hidden="true"></i><span data-i18n="resources.normalThreshold">Below 75%</span></span>
+          <span class="warning"><i aria-hidden="true"></i><span data-i18n="resources.warningThreshold">From 75%</span></span>
+          <span class="critical"><i aria-hidden="true"></i><span data-i18n="resources.criticalThreshold">From 90%</span></span>
+          <span data-i18n="resources.colorNote">Color indicates utilization, not an error.</span>
+        </p>
+      </section>
+
+      <details class="sisu-details">
+        <summary data-i18n="timeline.details">History and process diagnostics</summary>
+        <section class="instrument">
+          <article
+            id="timeline"
+            class="timeline"
+            aria-labelledby="timeline-title"
+          >
+            <div class="panel-head">
+              <div>
+                <h2 id="timeline-title" data-i18n="timeline.title">Last 15 minutes</h2>
+                <p data-i18n="timeline.description">resources and verified operations over the same period</p>
+              </div>
+              <span class="range on" data-i18n="timeline.range">15 MIN</span>
+            </div>
+            <div
+              id="timeline-chart"
+              class="timeline-chart"
+              role="img"
+              aria-label="History of CPU, GPU, temperature, and network, with agent events"
+              data-i18n-aria="timeline.chartLabel"
+            ></div>
+            <div class="timeline-legend">
+              <span><i class="cpu"></i>CPU</span
+              ><span><i class="gpu"></i>GPU</span
+              ><span><i class="thermal"></i><span data-i18n="timeline.temperature">TEMP</span></span
+              ><span><i class="net"></i><span data-i18n="timeline.network">NETWORK</span></span
+              ><button id="chronicle-button" hidden data-i18n="timeline.openEvents">Open operation history</button>
+            </div>
+          </article>
+          <aside class="resources" aria-labelledby="resources-title">
+            <div class="panel-head">
+              <div>
+                <h2 id="resources-title" data-i18n="resources.coreTitle">Core instrument</h2>
+                <p data-i18n="resources.coreDescription">same units, meaningful thresholds</p>
+              </div>
+              <span class="range on" data-i18n="resources.coreNow">NOW</span>
+            </div>
+            <div id="resource-channels" class="resource-channels"></div>
+          </aside>
+        </section>
+      </details>
+      <section id="platform-section" class="platform" aria-labelledby="platform-title">
+        <div class="section-label">
+          <span data-i18n="platform.section">PLATFORM</span>
+          <h2 id="platform-title" data-i18n="platform.title">Capacity and pulse</h2>
+        </div>
+        <div class="storage">
+          <div class="strip-head">
+            <strong data-i18n="platform.storage">Shared storage</strong
+            ><span id="storage-summary" data-i18n="quota.waiting">waiting for data</span>
+          </div>
+          <div id="volume-map" class="volume-map"></div>
+        </div>
+        <div class="services">
+          <div class="strip-head">
+            <strong data-i18n="platform.services">Core services</strong
+            ><button id="services-button" data-i18n="platform.inspectServices">inspect services</button>
+          </div>
+          <div id="service-vitals" class="service-vitals"></div>
+        </div>
+      </section>
+      <footer class="legend">
+        <span><i class="measured"></i><span data-i18n="legend.measured">MEASURED</span></span
+        ><span><i class="related"></i><span data-i18n="legend.related">RELATED</span></span
+        ><span><i class="unbound"></i><span data-i18n="legend.unbound">UNATTRIBUTED / NOTICE</span></span
+        ><button id="logs-button" hidden><b id="log-badge">0</b> <span data-i18n="legend.logs">AGENT LOGS</span></button
+        ><span id="data-age" class="data-age" data-i18n="legend.data">data –</span>
+      </footer>
+    </main>
+
+    <dialog id="inspector" class="dialog" aria-labelledby="inspector-title">
+      <div class="dialog-head">
+        <div>
+          <p id="inspector-kicker" data-i18n="dialog.inspect">DETAILS</p>
+          <h2 id="inspector-title" tabindex="-1" data-i18n="dialog.details">Details</h2>
+        </div>
+        <button class="dialog-close" data-close="inspector">
+          <span data-i18n="dialog.close">Close</span> <kbd>Esc</kbd>
+        </button>
+      </div>
+      <div id="inspector-content" class="dialog-content"></div>
+    </dialog>
+    <dialog id="logs-dialog" class="dialog logs-dialog" aria-labelledby="logs-title">
+      <div class="dialog-head">
+        <div>
+          <p>HERMES · OPENCLAW</p>
+          <h2 id="logs-title" data-i18n="dialog.logsTitle">Hermes and OpenClaw logs</h2>
+        </div>
+        <button class="dialog-close" data-close="logs-dialog">
+          <span data-i18n="dialog.close">Close</span> <kbd>Esc</kbd>
+        </button>
+      </div>
+      <div
+        class="log-toolbar"
+        role="toolbar"
+        aria-label="Log filters and acknowledgement"
+        data-i18n-aria="dialog.logFilters"
+      >
+        <div class="filter-group" aria-label="Agent runtime" data-i18n-aria="dialog.runtime">
+          <span data-i18n="dialog.platform">PLATFORM</span>
+          <button
+            class="log-filter active"
+            data-runtime="all"
+            aria-pressed="true"
+          >
+            <span data-i18n="dialog.all">All</span>
+          </button>
+          <button class="log-filter" data-runtime="hermes" aria-pressed="false">
+            Hermes
+          </button>
+          <button
+            class="log-filter"
+            data-runtime="openclaw"
+            aria-pressed="false"
+          >
+            OpenClaw
+          </button>
+        </div>
+        <div class="filter-group" aria-label="Level" data-i18n-aria="dialog.severity">
+          <span data-i18n="dialog.severity">LEVEL</span
+          ><button
+            class="log-filter active"
+            data-level="all"
+            aria-pressed="true"
+          >
+            <span data-i18n="dialog.all">All</span></button
+          ><button class="log-filter" data-level="WARNING" aria-pressed="false">
+            <span data-i18n="dialog.warnings">Warnings</span></button
+          ><button class="log-filter" data-level="ERROR" aria-pressed="false">
+            <span data-i18n="dialog.errors">Errors</span>
+          </button>
+        </div>
+        <div class="filter-group" aria-label="Status" data-i18n-aria="dialog.status">
+          <span data-i18n="dialog.status">STATUS</span
+          ><button
+            class="log-filter active"
+            data-status="all"
+            aria-pressed="true"
+          >
+            <span data-i18n="dialog.all">All</span></button
+          ><button class="log-filter" data-status="checkable" aria-pressed="false">
+            <span data-i18n="dialog.checkable">Needs review</span></button
+          ><button class="log-filter" data-status="recovered" aria-pressed="false">
+            <span data-i18n="dialog.recovered">Recovered</span>
+          </button>
+        </div>
+        <div class="filter-group" aria-label="Source" data-i18n-aria="dialog.source">
+          <span data-i18n="dialog.source">SOURCE</span
+          ><button
+            class="log-filter active"
+            data-source="all"
+            aria-pressed="true"
+          >
+            <span data-i18n="dialog.all">All</span></button
+          ><button class="log-filter" data-source="agent" aria-pressed="false">
+            <span data-i18n="dialog.agent">Agent</span></button
+          ><button
+            class="log-filter"
+            data-source="gateway"
+            aria-pressed="false"
+          >
+            <span data-i18n="dialog.gateway">Gateway</span></button
+          ><button class="log-filter" data-source="errors" aria-pressed="false">
+            <span data-i18n="dialog.errorLog">Error log</span>
+          </button>
+        </div>
+        <button
+          id="acknowledge-errors"
+          class="acknowledge-errors"
+          type="button"
+          disabled
+        >
+          <span data-i18n="attention.logsNone">No errors to acknowledge</span></button
+        ><span id="log-source-status" role="status"></span>
+        <span id="log-result-count" class="log-result-count">–</span>
+      </div>
+      <ol id="log-list" class="log-list"></ol>
+    </dialog>
+    <dialog id="chronicle-dialog" class="dialog chronicle-dialog">
+      <div class="dialog-head">
+        <div>
+          <p data-i18n="dialog.eventTitle">VERIFIED EVENTS</p>
+          <h2 id="chronicle-title" data-i18n="dialog.eventHistory">Operation history</h2>
+        </div>
+        <button class="dialog-close" data-close="chronicle-dialog">
+          <span data-i18n="dialog.close">Close</span> <kbd>Esc</kbd>
+        </button>
+      </div>
+      <div class="log-toolbar">
+        <button class="event-filter active" data-kind="all" aria-pressed="true">
+          <span data-i18n="dialog.all">All</span></button
+        ><button class="event-filter" data-kind="TOOL" aria-pressed="false">
+          <span data-i18n="dialog.tools">Tools</span></button
+        ><button class="event-filter" data-kind="ERROR" aria-pressed="false">
+          <span data-i18n="dialog.errors">Errors</span>
+        </button>
+      </div>
+      <ol id="event-list" class="event-list"></ol>
+    </dialog>
+    <div id="sr-announcer" class="sr-only" aria-live="polite"></div>
+  </body>
+</html>

@@ -1,0 +1,39 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ['3.12', '3.14']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: python -m pip install '.[dev]' build
+      - run: ruff check .
+      - run: pytest
+      - run: python scripts/check_public.py
+      - run: sisu-kudos --config examples/single-spark.toml --check-config
+      - run: sisu-kudos --config examples/two-sparks.toml --check-config
+      - run: sisu-kudos --config examples/optional-services.toml --check-config
+      - run: python -m build
+      - name: Isolated browser QA (synthetic fixtures)
+        if: matrix.python == '3.12'
+        run: |
+          python -m pip install 'playwright>=1.50,<2'
+          python -m playwright install --with-deps chromium
+          python scripts/qa_browser.py

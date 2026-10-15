@@ -1,0 +1,16 @@
+# Standalone base telemetry plus two explicitly declared LOCAL service checks.
+[site]
+language = "en"
+
+[[services]]
+name = "model"
+label = "Model server"
+kind = "systemd"
+unit = "model-server.service"
+scope = "user" # "system" for a system-level unit.
+
+[[services]]
+name = "model-http"
+label = "Model HTTP endpoint"
+kind = "http"
+url = "http://127.0.0.1:8000/health"
