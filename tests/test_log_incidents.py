@@ -2,6 +2,7 @@
 
 import json
 import os
+import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -180,6 +181,18 @@ def test_client_disconnect_does_not_swallow_next_actual_error(tmp_path):
     assert data["counts"]["warning"] == 1
 
 
+@pytest.fixture(params=("UTC", "Europe/Helsinki", "America/New_York"))
+def host_timezone(request, monkeypatch):
+    """Naive log times and fixture state must share the host time zone."""
+    try:
+        with monkeypatch.context() as change:
+            change.setenv("TZ", request.param)
+            time.tzset()
+            yield request.param
+    finally:
+        time.tzset()
+
+
 def _state(home, recovery, *, wrong_pid=False, old=False):
     pid = os.getpid()
     ticks = int(Path(f"/proc/{pid}/stat").read_text().rsplit(")", 1)[1].split()[19])
@@ -197,7 +210,7 @@ def _state(home, recovery, *, wrong_pid=False, old=False):
                 "needs_attention": False,
                 "writer_pid": pid,
                 "writer_start_time": ticks,
-                "updated_at": recovery,
+                "updated_at": datetime.fromisoformat(recovery).astimezone().isoformat(),
             }
         },
     }
@@ -207,23 +220,27 @@ def _state(home, recovery, *, wrong_pid=False, old=False):
 @pytest.mark.parametrize(
     "wrong_pid,old,recovered", [(False, False, True), (True, False, False), (False, True, False)]
 )
-def test_live_shared_gateway_recovery_is_process_fenced(tmp_path, wrong_pid, old, recovered):
+def test_live_shared_gateway_recovery_is_process_fenced(
+    tmp_path, wrong_pid, old, recovered, host_timezone
+):
     root = fixture_logs(tmp_path / "default" / "logs", "")
     scheduler = fixture_logs(
         tmp_path / "default" / "profiles" / "scheduler" / "logs", FAIL + SCHEDULER_RUNNER
     )
-    _state(root.parent, "2026-10-13T07:19:08.512+03:00", wrong_pid=wrong_pid, old=old)
+    _state(root.parent, "2026-10-13T07:19:08.512", wrong_pid=wrong_pid, old=old)
     data = collect_hermes_logs({"Assistant": root, "Scheduler": scheduler})
     error = next(r for r in data["records"] if r["level"] == "ERROR")
     assert (error["status"] == "recovered") == recovered
 
 
-def test_retained_history_does_not_use_current_connected_state_without_later_recovery(tmp_path):
+def test_retained_history_does_not_use_current_connected_state_without_later_recovery(
+    tmp_path, host_timezone
+):
     root = fixture_logs(tmp_path / "default" / "logs", "")
     scheduler = fixture_logs(
         tmp_path / "default" / "profiles" / "scheduler" / "logs", FAIL + SCHEDULER_RUNNER
     )
-    _state(root.parent, "2026-10-13T06:19:08.512+03:00")
+    _state(root.parent, "2026-10-13T06:19:08.512")
     assert collect_hermes_logs({"Assistant": root, "Scheduler": scheduler})["counts"]["error"] == 1
 
 
