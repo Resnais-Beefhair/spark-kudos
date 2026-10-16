@@ -24,6 +24,7 @@ framework, external CDN, cloud account or private source repository is required.
 - Independently fresh host panels, 15-minute in-memory histories and resource drilldowns.
 - Configurable host labels, network interfaces, mounted volumes and systemd/HTTP services.
 - Optional model-server metrics and opt-in agent, cron, quota and privacy-filtered log adapters.
+- Independent [Claude subscription limits](docs/CLAUDE-QUOTA.md), using an existing local Claude Code login without changing it.
 - A real English/Finnish language switch, including dynamic dialogs and accessible labels.
   Your explicit choice stays in your browser; the site default is configurable.
 - Unknown or stale values stay unknown. Device power is not wall power. Spark GPU
@@ -69,10 +70,10 @@ sisu-kudos
 ## Install a release package
 
 Download the wheel from [GitHub Releases](https://github.com/Resnais-Beefhair/spark-kudos/releases).
-The current version is 0.5.1; no PyPI package is published. From the download directory:
+The current release is 0.5.6. No PyPI package is published. From the download directory:
 
 ```bash
-uv tool install ./sisu_kudos-0.5.1-py3-none-any.whl
+uv tool install ./sisu_kudos-0.5.6-py3-none-any.whl
 sisu-kudos --version
 sisu-kudos
 ```

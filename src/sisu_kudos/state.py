@@ -8,7 +8,7 @@ import logging
 import time
 from collections import deque
 from dataclasses import asdict
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 from .adapters import (
@@ -43,6 +43,7 @@ class LiveState:
         self.settings = settings
         self.collectors: Any = None
         self.agent_service: Any = None
+        self._claude_quota: dict[str, Any] = {}
         self._base_agents: dict[str, Any] = {
             "sessions": [],
             "events": [],
@@ -168,6 +169,17 @@ class LiveState:
                     4.0,
                 )
             )
+        if self.settings.claude_quota_enabled:
+            from .claude_quota import ClaudeQuotaCollector
+
+            specs.append(
+                CollectorSpec(
+                    "claude_quota",
+                    ClaudeQuotaCollector(self.settings.claude_credentials_path),
+                    120.0,
+                    6.0,
+                )
+            )
         if self.agent_service is not None:
             specs.append(
                 CollectorSpec(
@@ -191,7 +203,9 @@ class LiveState:
         self.scheduler = CollectorScheduler(specs, max_concurrency=6)
         core = ["cpu", "ram", "gpu", "network", "system", "disks", "processes"]
         core.extend(
-            name for name in ("logs", "crons", "agents", "model") if name in self.scheduler.names()
+            name
+            for name in ("logs", "crons", "agents", "model", "claude_quota")
+            if name in self.scheduler.names()
         )
         await self.scheduler.wait_for(core, timeout=15.0)
         await self._publish(self.scheduler.pop_dirty() | set(core))
@@ -207,6 +221,7 @@ class LiveState:
                 "crons": self.settings.crons_enabled,
                 "resources": self.settings.resources_enabled,
                 "quotas": self.settings.quotas_enabled,
+                "claude_quota": self.settings.claude_quota_enabled,
             },
         }
 
@@ -271,8 +286,42 @@ class LiveState:
             if not quota.get("available") and previous.get("available"):
                 retained = dict(previous)
                 retained["stale"] = True
-                retained["status"] = f"{previous.get('status', key)} · last known data"
                 safe["quotas"][key] = retained
+
+    def _merge_claude_quota(self, names: set[str], scheduler_names: set[str]) -> None:
+        """Keep provider polling independent of agent and cron refresh cycles."""
+        if not self.settings.claude_quota_enabled:
+            return
+        if "claude_quota" in names and "claude_quota" in scheduler_names:
+            value = self.scheduler.value("claude_quota")
+            if value is not None:
+                candidate = dict(value)
+                if not candidate.get("available") and self._claude_quota.get("available"):
+                    candidate = dict(self._claude_quota) | {
+                        "stale": True,
+                        "state": candidate.get("state", "unavailable"),
+                    }
+                self._claude_quota = candidate
+        quota = dict(self._claude_quota) or {
+            "provider": "Claude",
+            "available": False,
+            "status": "",
+            "windows": [],
+            "state": "unavailable",
+            "collected_at": "",
+        }
+        if quota.get("available"):
+            try:
+                sampled = datetime.fromisoformat(quota["collected_at"])
+                age = (datetime.now(UTC) - sampled).total_seconds()
+                expired = sampled.tzinfo is None or age > 300 or age < -5
+            except (KeyError, TypeError, ValueError):
+                expired = True
+            health = self._health("claude_quota")
+            quota["stale"] = bool(quota.get("stale") or expired or not health.get("ok"))
+        agents = dict(self.data["agents"])
+        agents["quotas"] = dict(agents.get("quotas", {})) | {"claude": quota}
+        self.data["agents"] = agents
 
     async def _publish(self, names: set[str]) -> None:
         now = datetime.now().astimezone().isoformat(timespec="seconds")
@@ -361,6 +410,8 @@ class LiveState:
                     self.scheduler.value("crons") if "crons" in self.scheduler.names() else None,
                     stale=not cron_health.get("ok") or cron_health.get("stale", True),
                 )
+
+            self._merge_claude_quota(names, scheduler_names)
 
             if names & {"cpu", "ram", "gpu", "network"} and (
                 time.monotonic() - self._history_at >= self.settings.system_interval_s

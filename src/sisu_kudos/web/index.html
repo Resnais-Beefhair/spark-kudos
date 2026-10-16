@@ -9,18 +9,18 @@
       rel="icon"
       href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 32 32%22><rect width=%2232%22 height=%2232%22 rx=%226%22 fill=%22%2311120f%22/><path d=%22M8 22V13h4v9zm6 0V7h4v15zm6 0V10h4v12z%22 fill=%22%23cac7bb%22/></svg>"
     />
-    <link rel="stylesheet" href="/assets/styles.css?v=0.5.1" />
-    <script src="/assets/i18n.js?v=0.5.1" defer></script>
-    <script src="/assets/hosts.js?v=0.5.1" defer></script>
-    <script src="/assets/telemetry.js?v=0.5.1" defer></script>
-    <script src="/assets/app.js?v=0.5.1" defer></script>
+    <link rel="stylesheet" href="/assets/styles.css?v=0.5.6" />
+    <script src="/assets/i18n.js?v=0.5.6" defer></script>
+    <script src="/assets/hosts.js?v=0.5.6" defer></script>
+    <script src="/assets/telemetry.js?v=0.5.6" defer></script>
+    <script src="/assets/app.js?v=0.5.6" defer></script>
   </head>
   <body>
     <a class="skip-link" href="#host-panels" data-i18n="skip">Skip to dashboard</a>
     <header class="masthead">
       <div class="brand">
         <span class="mark" aria-hidden="true"><i></i><i></i></span
-        ><strong>KUDOS</strong><span id="version">v0.5.1</span>
+        ><strong>KUDOS</strong><span id="version">v0.5.6</span>
       </div>
       <dl
         class="work-stats header-stats"
@@ -52,11 +52,17 @@
     </header>
     <main>
       <section class="capacity" aria-label="Capacity and status" data-i18n-aria="capacity.label">
-        <button id="quota-control" class="capacity-cell" hidden data-inspect="quota:chatgpt">
-          <span class="cap-name" data-i18n="quota.name">QUOTA</span
+        <button id="quota-control" class="capacity-cell quota-cell" hidden data-inspect="quota:chatgpt">
+          <span class="cap-name" data-i18n="quota.name">CHATGPT · REMAINING</span
           ><strong id="chatgpt-value">–</strong
           ><span id="chatgpt-note" class="cap-note" data-i18n="quota.waiting">waiting for data</span
           ><span class="life"><i id="chatgpt-life"></i></span>
+        </button>
+        <button id="claude-quota-control" class="capacity-cell quota-cell claude-quota" hidden data-inspect="quota:claude" data-i18n-aria="quota.claudeAria">
+          <span class="cap-name" data-i18n="quota.claudeName">CLAUDE · REMAINING</span
+          ><strong id="claude-value">–</strong
+          ><span id="claude-note" class="cap-note" data-i18n="quota.waiting">waiting for data</span
+          ><span class="quota-lives" aria-hidden="true"><span class="life unknown"><i id="claude-life"></i></span><span class="life unknown"><i id="claude-week-life"></i></span></span>
         </button>
         <button class="capacity-cell dual-power" data-inspect="power:gpu">
           <span class="cap-name" data-i18n="power.name">GPU POWER</span>

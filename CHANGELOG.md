@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.6
+
+Includes the previously unpublished 0.5.2–0.5.5 development changes.
+
+- Compact the work register to two content lines per desktop card; keep task and origin on separate lines on mobile.
+- Keep agent, runtime, live state, elapsed time, task and origin visible. Model, reasoning, Fast mode and exact tool details are available in the card's dialog; fix missing reasoning/Fast fields found during release QA.
+- Retain the activity glyph, tooltip captions and reduced-motion behavior; show elapsed time instead of clock start time.
+- Compact the capacity strip without shrinking quota values. Keep Claude tracks side by side, preserve complete reset dates, and let failure details expand instead of clipping.
+- Add independent, opt-in Claude subscription usage using an existing local Claude Code login, without refreshing or modifying credentials.
+- Show provider-correct English/Finnish details, five-hour/weekly windows and reset times. Preserve last-confirmed data visibly as stale during failures.
+- Keep provider polling independent of agent/cron refresh; bound timeouts, response sizes and cooldowns, reject redirects, and keep credentials out of browser payloads.
+- Distinguish usage-query throttling from subscription-window exhaustion.
+- Add synthetic collector, state, localization, responsive density/collision, dialog and frontend CI regressions.
+
 ## 0.5.1
 
 - Localize missing ChatGPT quota status in both the summary and inspector (#1).

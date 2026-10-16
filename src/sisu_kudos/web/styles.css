@@ -160,9 +160,9 @@ main {
   margin: auto;
 }
 .capacity {
-  height: 76px;
+  min-height: 68px;
   display: grid;
-  grid-template-columns: 1.2fr 0.8fr 1.45fr;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 1px;
   border-bottom: 1px solid var(--line);
   background: var(--line);
@@ -174,22 +174,50 @@ main {
   text-align: left;
 }
 .capacity-cell {
-  padding: 13px 18px;
+  padding: 6px 16px;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 12px;
+  align-content: center;
+  gap: 4px 10px;
   min-width: 0;
 }
-.capacity-cell:first-child {
-  grid-template-columns: auto auto minmax(0, 1fr);
+.capacity-cell.quota-cell {
+  grid-template-columns: auto minmax(0, 1fr);
+  align-content: center;
+}
+.capacity-cell.quota-cell > .cap-name,
+.capacity-cell.quota-cell > strong {
+  grid-column: 1/-1;
+}
+.capacity-cell.quota-cell > strong {
+  font-size: 18px;
+  line-height: 1.15;
+}
+.capacity-cell.quota-cell .cap-note {
+  grid-column: 1/-1;
+  text-align: left;
+}
+/* At desktop widths put each provider label and value on one baseline. */
+@media (min-width: 1101px) {
+  .capacity:has(#quota-control:not([hidden])):has(#claude-quota-control:not([hidden])) {
+    grid-template-columns: 0.85fr 1.25fr 0.9fr 1fr;
+  }
+  .capacity-cell.quota-cell > .cap-name {
+    grid-column: 1;
+  }
+  .capacity-cell.quota-cell > strong {
+    grid-column: 2;
+    text-align: right;
+  }
 }
 .capacity-cell strong {
   white-space: nowrap;
 }
 .cap-name {
   font-size: 10px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
   color: var(--muted);
 }
 .capacity-cell strong {
@@ -199,7 +227,7 @@ main {
 }
 .cap-note {
   font:
-    10px ui-monospace,
+    10px/1.3 ui-monospace,
     monospace;
   color: var(--muted);
   text-align: right;
@@ -224,8 +252,30 @@ main {
     transparent 3px 9px
   );
 }
+.quota-lives {
+  grid-column: 1/-1;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+.quota-lives .life {
+  min-width: 0;
+  grid-column: auto;
+}
+.claude-quota strong {
+  min-width: 0;
+  white-space: normal;
+  font-size: 18px;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
+}
+.claude-quota .cap-note {
+  min-width: 0;
+  text-wrap: pretty;
+  overflow-wrap: anywhere;
+}
 .attention-cell {
-  padding: 13px 18px;
+  padding: 6px 16px;
   border-left: 3px solid var(--good) !important;
   background: #171914 !important;
   display: grid;
@@ -246,9 +296,9 @@ main {
     800 9px ui-monospace,
     monospace;
   color: var(--good);
-  border: 1px solid #536258;
-  padding: 4px 6px;
-  grid-row: 1/3;
+  border: 0;
+  padding: 0;
+  align-self: center;
 }
 .warning .stamp {
   color: var(--copper);
@@ -259,10 +309,13 @@ main {
   border-color: #754039;
 }
 .attention-cell strong {
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.3;
   font-weight: 600;
 }
 .attention-cell > span:last-child {
+  grid-column: 1/-1;
+  line-height: 1.3;
   font-size: 10px;
   color: var(--muted);
 }
@@ -386,7 +439,6 @@ main {
 }
 .work-list {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 400px));
   align-content: center;
   min-width: 0;
   max-width: 100%;
@@ -1189,10 +1241,10 @@ kbd {
     display: none;
   }
   .capacity {
-    grid-template-columns: 1fr 1fr;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .attention-cell {
-    grid-column: 1/-1;
+    grid-column: auto;
   }
   .capacity {
     height: auto;
@@ -1249,7 +1301,7 @@ kbd {
     padding-inline: 16px;
   }
   .capacity {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
   .attention-cell {
     grid-column: auto;
@@ -2100,51 +2152,73 @@ kbd {
   }
 }
 
-/* Compact operational cards: identity, origin, task, model on four tight lines. */
+/* Compact operational cards: identity and task on two lines; model stays in the inspector. */
 .work {
   min-height: 0;
 }
 .work-list {
   align-content: start;
-  grid-template-columns: repeat(auto-fill, minmax(min(100%, 300px), 400px));
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 300px), 1fr));
 }
 .work-list .ticket {
   min-height: 0;
-  padding: 8px 10px;
-  grid-template-columns: 1fr auto;
-  grid-template-rows: minmax(40px, auto) 18px 20px 24px;
-  gap: 3px 6px;
+  padding: 7px 10px 7px 14px;
+  grid-template-columns: minmax(0, 1fr) auto 30px;
+  grid-template-rows: 22px 20px;
+  column-gap: 8px;
+  row-gap: 2px;
+  align-items: center;
 }
 .ticket .agent-id {
   grid-column: 1;
+  grid-row: 1;
   gap: 6px;
 }
 .ticket .avatar {
-  width: 22px;
-  height: 22px;
-  flex-basis: 22px;
-  font-size: 10px;
+  width: 18px;
+  height: 18px;
+  flex-basis: 18px;
+  font-size: 9px;
 }
 .ticket .agent-id > span:last-child {
   display: flex;
   min-width: 0;
-  gap: 2px;
-  flex-direction: column;
-  align-items: stretch;
+  gap: 7px;
+  flex-direction: row;
+  align-items: baseline;
+}
+.ticket .agent-id strong {
+  flex: 0 0 auto;
 }
 .ticket .agent-id small {
   margin: 0;
+  min-width: 0;
+  flex: 0 1 auto;
   font-size: 11px;
   letter-spacing: 0;
-  max-width: 100%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .ticket-start {
   grid-row: 1;
   grid-column: 2;
+  justify-self: end;
+  align-self: center;
   font-size: 11px;
 }
+.ticket-line {
+  grid-column: 1 / 3;
+  grid-row: 2;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  min-width: 0;
+  gap: 0 12px;
+  align-items: baseline;
+}
 .ticket-origin {
-  grid-column: 1/-1;
+  min-width: 0;
+  text-align: right;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -2152,30 +2226,25 @@ kbd {
   font-size: 11px;
 }
 .ticket .task {
+  min-width: 0;
   display: block;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  font-size: 12px;
+  font-size: 13px;
 }
 .ticket-meta {
-  grid-column: 1/-1;
-}
-.ticket .tag {
-  font-size: 11px;
-  padding: 1px 4px;
-}
-.ticket .tag.model {
-  max-width: 165px;
+  display: none;
 }
 .capacity .dual-power {
   grid-template-columns: 1fr;
   gap: 4px;
-  padding-block: 9px;
+  padding-block: 6px;
+  align-content: center;
 }
 .power-readings {
   display: flex;
-  gap: 20px;
+  gap: 4px 20px;
   flex-wrap: wrap;
   font-size: 11px;
   color: var(--muted);
@@ -2205,44 +2274,28 @@ kbd {
   font-size: 11px;
   color: var(--copper);
 }
-/* One bounded activity marker below the start time; text never sits under it. */
-.work-list .ticket {
-  grid-template-columns: minmax(0, 1fr) 112px;
-}
-.ticket-origin,
-.ticket .task,
-.ticket-meta {
-  grid-column: 1;
-}
-.ticket-origin { grid-row: 2; }
-.ticket .task { grid-row: 3; }
-.ticket-meta { grid-row: 4; }
-.ticket-start { justify-self: end; }
+/* One bounded activity marker at the card's right edge; text never sits under it. */
 .ticket-activity {
-  grid-column: 2;
-  grid-row: 2 / 5;
+  grid-column: 3;
+  grid-row: 1 / 3;
   align-self: center;
   justify-self: end;
-  width: 98px;
+  width: 30px;
   display: grid;
   justify-items: center;
   color: var(--muted);
 }
 .ticket-activity svg {
   display: block;
-  width: 64px;
-  height: 44px;
+  width: 28px;
+  height: 20px;
   fill: none;
   stroke: currentColor;
   stroke-width: 1.5;
   stroke-linecap: round;
   stroke-linejoin: round;
 }
-.activity-label {
-  max-width: 100%;
-  font: 10px/12px ui-monospace, monospace;
-  white-space: nowrap;
-}
+.activity-label { display: none; }
 .activity-track { stroke: #465248; }
 .activity-accent,
 .activity-lens { stroke: var(--signal); }
@@ -2315,7 +2368,28 @@ html[data-activity-connection="stale"] .ticket-activity * {
   .work-list {
     grid-template-columns: minmax(0, 1fr);
   }
+  .work-list .ticket {
+    grid-template-columns: minmax(0, 1fr) auto 30px;
+    grid-template-rows: 20px 18px 20px;
+  }
+  .ticket-line {
+    grid-column: 1 / 3;
+    grid-row: 2 / 4;
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: 18px 20px;
+    gap: 2px;
+  }
+  .ticket-origin {
+    text-align: left;
+    max-width: 100%;
+  }
+  .ticket .task {
+    max-width: 100%;
+  }
+  .ticket-activity {
+    grid-row: 1 / 4;
+  }
   .power-readings {
-    gap: 24px;
+    column-gap: 24px;
   }
 }

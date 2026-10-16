@@ -97,14 +97,15 @@ There are no arbitrary shell-command checks. See
 All flags default to `false` and must be actual TOML booleans, not strings:
 
 - `agents`: opt into sessions through the optional trusted local Agenttimonitori adapter.
-- `quotas`: opt into supported quota telemetry through the same optional adapter.
+- `quotas`: opt into ChatGPT quota telemetry through the same optional adapter.
+- `claude_quota`: independently opt into [Claude subscription limits](CLAUDE-QUOTA.md) using an existing local Claude Code login; no Agenttimonitori dependency.
 - `logs`: structured privacy-filtered Hermes/OpenClaw logs; arbitrary prose is not served.
 - `crons`: read-only running-execution metadata; not a scheduler or job editor.
 - `resources`: an explicitly configured local resource registry snapshot.
 
 Disabled integrations are not polled and their controls are hidden. A configured
 but unavailable source fails visibly and retains last-good data where available.
-Agents/quotas currently use the optional legacy `agentmon` source contract: they are
+Agents/ChatGPT quotas currently use the optional legacy `agentmon` source contract: they are
 **not** included as a generic all-framework collector. The base install needs none
 of these integrations. Review adapter compatibility before enabling them.
 
@@ -117,6 +118,7 @@ of these integrations. Review adapter compatibility before enabling them.
 - `hermes_log_dir`: default `~/.hermes/logs`, only read after relevant opt-in.
 - `openclaw_home`: default `~/.openclaw`, only read after relevant opt-in.
 - `resource_snapshot_path`: default empty, required source for enabled resources.
+- `claude_credentials`: default empty, meaning `~/.claude/.credentials.json` when `claude_quota` is enabled. An optional local path to an existing Claude Code OAuth credential file; never read when disabled. The path and credentials are never included in snapshots.
 
 Legacy Python repository paths execute trusted local Python. They are not an
 untrusted plugin sandbox. These compatibility adapters intentionally make no
@@ -157,5 +159,5 @@ Numeric seconds, each between 0.1 and 3600:
 - `slow_interval_s`: `12.0` (local disks and declared services).
 
 GPU shared-state reads use a five-second cadence, remote/model probes ten seconds
-and local identity thirty seconds. Histories are bounded to 450 samples, not a
+and local identity thirty seconds. Claude usage is polled every 120 seconds, with last-known values marked stale after five minutes or a failed refresh. Histories are bounded to 450 samples, not a
 persistent database. Lowering intervals is not a way to make a stalled source safe.

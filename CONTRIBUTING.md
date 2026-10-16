@@ -12,6 +12,9 @@ uv run ruff check .
 uv run pytest
 node --check src/sisu_kudos/web/app.js
 node scripts/test_i18n.cjs
+node scripts/test_quotas.cjs
+node scripts/test_activity.cjs
+node scripts/test_telemetry.cjs
 uv build
 uv run --with playwright playwright install chromium
 uv run --with playwright python scripts/qa_browser.py

@@ -27,7 +27,16 @@ WEB = Path(__file__).resolve().parents[1] / "src/sisu_kudos/web"
 
 
 def fixture(
-    language="en", dual=False, optional=False, failed=False, preview=False, empty_disks=False
+    language="en",
+    dual=False,
+    optional=False,
+    failed=False,
+    preview=False,
+    empty_disks=False,
+    claude=None,
+    claude_state="available",
+    chatgpt_sample=False,
+    session_count=1,
 ):
     """Deliberate test fixtures; none of these numbers are real measurements."""
     now = datetime.now(UTC)
@@ -124,6 +133,9 @@ def fixture(
                 "age_seconds": 2,
                 "task": "Model <preview> & analysis",
                 "model": "example-model",
+                "provider": "example-provider",
+                "reasoning": "high",
+                "service_tier": "fast",
                 "runtime": "hermes",
                 "uid": "fixture-session",
                 "updated_at": stamp,
@@ -136,6 +148,65 @@ def fixture(
         if optional
         else []
     )
+    if optional and session_count > 1:
+        sessions = [
+            dict(
+                sessions[0],
+                uid=f"fixture-session-{index}",
+                agent=f"Example worker {index + 1}",
+                task=f"Synthetic analysis task {index + 1} with a deliberately long title",
+                location="Synthetic demo / Example project / Example conversation",
+                started_at=(now - timedelta(hours=index + 1)).isoformat(),
+            )
+            for index in range(session_count)
+        ]
+    quotas = safe_agent_snapshot(SimpleNamespace())["quotas"]
+    if chatgpt_sample:
+        quotas["chatgpt"] = {
+            "provider": "ChatGPT",
+            "available": True,
+            "status": "Example subscription",
+            "windows": [
+                {
+                    "id": "codex",
+                    "label": "Codex",
+                    "remaining_percent": 61,
+                    "used_percent": 39,
+                    "duration_minutes": 10080,
+                    "resets_at": int((now + timedelta(days=3)).timestamp()),
+                }
+            ],
+            "collected_at": stamp,
+            "resets_available": 0,
+        }
+    quotas["claude"] = {
+        "provider": "Claude",
+        "available": claude_state != "login_required",
+        "status": "Max 5×",
+        "state": claude_state,
+        "stale": claude_state == "rate_limited",
+        "collected_at": stamp,
+        "windows": []
+        if claude_state == "login_required"
+        else [
+            {
+                "id": "five_hour",
+                "label": "5-hour window",
+                "remaining_percent": 96,
+                "used_percent": 4,
+                "duration_minutes": 300,
+                "resets_at": (now + timedelta(hours=3)).isoformat(),
+            },
+            {
+                "id": "seven_day",
+                "label": "7-day window",
+                "remaining_percent": 100,
+                "used_percent": 0,
+                "duration_minutes": 10080,
+                "resets_at": (now + timedelta(days=3)).isoformat(),
+            },
+        ],
+    }
     return {
         "schema_version": 3,
         "revision": 1,
@@ -146,7 +217,8 @@ def fixture(
             "language": language,
             "local_host_id": "lab-primary",
             "features": {
-                key: optional for key in ("agents", "crons", "logs", "quotas", "resources")
+                **{key: optional for key in ("agents", "crons", "logs", "quotas", "resources")},
+                "claude_quota": optional if claude is None else claude,
             },
         },
         "hosts": hosts,
@@ -155,7 +227,7 @@ def fixture(
         "collector_health": {name: healthy for name in ("cpu", "ram", "gpu", "network", "agents")},
         "agents": {
             "sessions": sessions,
-            "quotas": safe_agent_snapshot(SimpleNamespace())["quotas"],
+            "quotas": quotas,
             "health": [{"source": "hermes", "ok": True}],
             "generated_at": stamp,
         },
@@ -222,7 +294,7 @@ def run(output):
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    errors, failures, checks = [], [], []
+    errors, failures, checks, capacity_layout, work_layout = [], [], [], [], []
     output.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as p:
@@ -253,6 +325,7 @@ def run(output):
                     "work-section",
                     "agent-resources-section",
                     "quota-control",
+                    "claude-quota-control",
                     "logs-button",
                 ):
                     expect(page.locator(f"#{name}")).to_be_hidden()
@@ -264,7 +337,20 @@ def run(output):
                 page.reload()
                 expect(page.locator("html")).to_have_attribute("lang", "fi")
                 checks.append("Finnish switch and explicit preference survive reload")
-                options.update(language="en", dual=True, optional=True)
+                options.update(claude=True)
+                expect(page.locator("#claude-quota-control")).to_be_visible()
+                expect(page.locator("#quota-control")).to_be_hidden()
+                expect(page.locator("#work-section")).to_be_hidden()
+                expect(page.locator("#claude-value")).to_contain_text("96")
+                expect(page.locator("#claude-quota-control")).to_contain_text("100")
+                page.locator("#claude-quota-control").click()
+                expect(page.locator("#inspector-title")).to_contain_text("Claude")
+                expect(page.locator("#inspector-content")).to_contain_text("96")
+                expect(page.locator("#inspector-content")).not_to_contain_text("1970")
+                page.locator("#inspector [data-close]").click()
+                expect(page.locator("#claude-quota-control")).to_be_focused()
+                checks.append("Claude-only opt-in, five-hour/weekly values, ISO reset and focus")
+                options.update(language="en", dual=True, optional=True, claude=None)
                 page.reload()
                 expect(page.locator(".host-panel")).to_have_count(2)
                 expect(page.locator("#work-section")).to_be_visible()
@@ -281,6 +367,15 @@ def run(output):
                 page.locator("#inspector [data-close]").click()
                 expect(trigger).to_be_focused()
                 checks.append("arbitrary dual-host IDs; remote details; dialog/focus survive SSE")
+                page.locator("#work-list .ticket").first.click()
+                expect(page.locator("#inspector-content")).to_contain_text("example-model")
+                expect(page.locator("#inspector-content")).to_contain_text("Päättely")
+                expect(page.locator("#inspector-content")).to_contain_text("high")
+                expect(page.locator("#inspector-content")).to_contain_text("Fast-tila")
+                expect(page.locator("#inspector-content")).to_contain_text("päällä")
+                page.locator("#inspector [data-close]").click()
+                expect(page.locator("#work-list .ticket").first).to_be_focused()
+                checks.append("compact work details retain model, reasoning and Fast mode")
                 page.locator("#language-select").select_option("en")
                 page.locator("#services-button").click()
                 expect(page.locator("#inspector-title")).to_have_text("Continuous service status")
@@ -319,7 +414,76 @@ def run(output):
                     page.locator(".skip-link").evaluate("n => getComputedStyle(n).clipPath")
                     == "inset(50%)"
                 )
-                options.update(preview=True)
+                for language in ("en", "fi"):
+                    page.locator("#language-select").select_option(language)
+                    options.update(claude_state="rate_limited")
+                    expect(page.locator("#claude-value")).to_contain_text("96")
+                    page.locator("#claude-quota-control").click()
+                    expect(page.locator("#inspector-content")).not_to_contain_text("1970")
+                    expect(page.locator("#inspector-content")).not_to_contain_text("ChatGPT")
+                    page.locator("#inspector [data-close]").click()
+                    options.update(claude_state="login_required")
+                    expect(page.locator("#claude-value")).not_to_contain_text("96")
+                    expect(page.locator("#claude-value")).not_to_contain_text("100")
+                    options.update(claude_state="available")
+                    expect(page.locator("#claude-value")).to_contain_text("96")
+                checks.append(
+                    "Claude rate-limit stale retention, login-required and recovery in EN/FI"
+                )
+                options.update(session_count=5)
+                expect(page.locator("#work-list .ticket")).to_have_count(5)
+                for language in ("en", "fi"):
+                    page.locator("#language-select").select_option(language)
+                    for width in (1920, 1440, 1366, 1024, 768, 390):
+                        page.set_viewport_size({"width": width, "height": 1080})
+                        layout = page.locator("#work-list").evaluate("""list => {
+                          const cards = [...list.querySelectorAll('.ticket')];
+                          let overlaps = 0;
+                          for (const card of cards) {
+                            const boxes = [...card.querySelectorAll(
+                              '.agent-id strong,.agent-id small,.task,.ticket-origin,' +
+                              '.ticket-start,.ticket-activity'
+                            )].map(n => n.getBoundingClientRect()).filter(b => b.width > 0);
+                            for (let i = 0; i < boxes.length; i++) {
+                              for (let j = i + 1; j < boxes.length; j++) {
+                                const a = boxes[i], b = boxes[j];
+                                if (a.left < b.right - 1 && b.left < a.right - 1 &&
+                                    a.top < b.bottom - 1 && b.top < a.bottom - 1) overlaps++;
+                              }
+                            }
+                          }
+                          return {
+                            count: cards.length,
+                            overlaps,
+                            height: Math.max(...cards.map(c => c.getBoundingClientRect().height)),
+                            hiddenMeta: cards.every(c =>
+                              getComputedStyle(c.querySelector('.ticket-meta')).display === 'none'),
+                            activity: cards.every(c => c.querySelector('.ticket-activity svg') &&
+                              c.querySelector('.ticket-activity').title.length > 0),
+                            overflow: document.documentElement.scrollWidth - innerWidth
+                          };
+                        }""")
+                        assert layout["count"] == 5, layout
+                        assert layout["overlaps"] == 0, (language, width, layout)
+                        assert layout["overflow"] <= 1, (language, width, layout)
+                        assert 44 <= layout["height"] <= (84 if width < 760 else 62), layout
+                        assert layout["hiddenMeta"] and layout["activity"], layout
+                        work_layout.append({"language": language, "viewport": width, **layout})
+                    page.locator("#work-list .ticket").first.click()
+                    for text in ("example-model", "high", "read_file"):
+                        expect(page.locator("#inspector-content")).to_contain_text(text)
+                    expect(page.locator("#inspector-content")).to_contain_text(
+                        "Fast mode" if language == "en" else "Fast-tila"
+                    )
+                    page.locator("#inspector [data-close]").click()
+                    expect(page.locator("#work-list .ticket").first).to_be_focused()
+                checks.append(
+                    "five compact work cards: EN/FI at1920/1440/1366/1024/768/390px, "
+                    "bounded heights, no collisions, activity and details retained"
+                )
+                page.set_viewport_size({"width": 1920, "height": 1080})
+                page.locator("#language-select").select_option("en")
+                options.update(preview=True, chatgpt_sample=True)
                 expect(page.locator(".host-panel h2").first).to_have_text("Spark One")
                 page.screenshot(path=str(output / "desktop-en.png"), full_page=True)
                 page.locator("#language-select").select_option("fi")
@@ -330,8 +494,42 @@ def run(output):
                         "document.documentElement.scrollWidth-document.documentElement.clientWidth"
                     )
                     assert overflow <= 1, (width, "horizontal overflow", overflow)
+                    for selector in ("#quota-control", "#claude-quota-control"):
+                        metrics = page.locator(selector).evaluate(
+                            "n => ({width:n.clientWidth, content:n.scrollWidth})"
+                        )
+                        assert metrics["content"] <= metrics["width"] + 1, (
+                            width,
+                            selector,
+                            metrics,
+                        )
+                    # Density is a measurable contract, not just zero horizontal overflow.
+                    strip_height = page.locator(".capacity").bounding_box()["height"]
+                    bars = [bar.bounding_box() for bar in page.locator(".quota-lives .life").all()]
+                    assert len(bars) == 2 and abs(bars[0]["y"] - bars[1]["y"]) < 1
+                    assert bars[0]["x"] + bars[0]["width"] <= bars[1]["x"]
+                    for card in page.locator(".capacity > button").all():
+                        if card.is_visible():
+                            assert card.bounding_box()["height"] >= 44
+                    capacity_layout.append({"viewport": width, "height_px": strip_height})
+                    if width >= 1366:
+                        # Longer configured host names may legitimately wrap the GPU row.
+                        assert strip_height <= 100, (width, strip_height)
+                        boxes = [
+                            page.locator(selector).bounding_box()
+                            for selector in (
+                                "#quota-control",
+                                "#claude-quota-control",
+                                ".dual-power",
+                            )
+                        ]
+                        assert boxes[0]["x"] < boxes[1]["x"] < boxes[2]["x"]
+                        assert abs(boxes[0]["y"] - boxes[2]["y"]) < 1
                     page.screenshot(path=str(output / f"viewport-{width}.png"), full_page=True)
-                checks.append("no horizontal overflow at 1366, 768 and 390 px")
+                checks.append(
+                    "compact strip <=100px desktop, side-by-side Claude tracks, "
+                    ">=44px targets and no overflow at1366/768/390px"
+                )
                 options.update(failed=True)
                 expect(page.locator('[data-host="compute-node"] .host-state')).to_contain_text(
                     "Yhteys katkesi"
@@ -341,7 +539,7 @@ def run(output):
                 )
                 checks.append("remote failure leaves local host live")
                 # A fresh browser uses the configured site language, not the earlier preference.
-                options.update(language="fi", optional=False, failed=False)
+                options.update(language="fi", optional=False, failed=False, claude=None)
                 fresh = browser.new_context()
                 newpage = fresh.new_page()
                 newpage.on(
@@ -358,6 +556,8 @@ def run(output):
                     "version": __version__,
                     "fixtures": "synthetic only",
                     "checks": checks,
+                    "capacity_layout": capacity_layout,
+                    "work_layout": work_layout,
                     "page_errors": errors,
                     "request_failures": failures,
                 }
