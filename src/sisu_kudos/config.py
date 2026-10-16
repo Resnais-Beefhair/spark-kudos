@@ -52,6 +52,8 @@ class Settings:
     crons_enabled: bool = False
     resources_enabled: bool = False
     quotas_enabled: bool = False
+    claude_quota_enabled: bool = False
+    claude_credentials_path: Path | None = None
     agentmon_repo: Path | None = None
     sisu_monitor_repo: Path | None = None
     hermes_log_dir: Path = field(default_factory=lambda: Path.home() / ".hermes" / "logs")
@@ -384,7 +386,7 @@ def _parse(data: dict[str, Any], base: Path) -> Settings:
     model_url = _optional_url(system.get("model_url", ""), "system.model_url")
 
     integrations = _table(data.get("integrations", {}), "integrations")
-    integration_names = {"agents", "logs", "crons", "resources", "quotas"}
+    integration_names = {"agents", "logs", "crons", "resources", "quotas", "claude_quota"}
     _only(integrations, integration_names, "integrations")
     flags: dict[str, bool] = {}
     for name in integration_names:
@@ -402,6 +404,7 @@ def _parse(data: dict[str, Any], base: Path) -> Settings:
             "hermes_log_dir",
             "openclaw_home",
             "resource_snapshot_path",
+            "claude_credentials",
         },
         "paths",
     )
@@ -418,6 +421,10 @@ def _parse(data: dict[str, Any], base: Path) -> Settings:
     )
     resource_snapshot_path = _path(
         paths.get("resource_snapshot_path", ""), "paths.resource_snapshot_path", base
+    )
+
+    claude_credentials_path = _path(
+        paths.get("claude_credentials", ""), "paths.claude_credentials", base
     )
 
     logs = _table(data.get("logs", {}), "logs")
@@ -479,6 +486,7 @@ def _parse(data: dict[str, Any], base: Path) -> Settings:
         hermes_log_dir=hermes_log_dir or home / ".hermes" / "logs",
         openclaw_home=openclaw_home or home / ".openclaw",
         resource_snapshot_path=resource_snapshot_path,
+        claude_credentials_path=claude_credentials_path,
         hermes_profiles=tuple(profiles),
         **flags,
         **interval_values,

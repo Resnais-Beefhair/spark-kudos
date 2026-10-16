@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.5.2 (unreleased)
+
+- Add an independent, opt-in Claude subscription usage collector using the existing local Claude Code login; never refresh or modify credentials.
+- Place compact ChatGPT and Claude capacity cards next to GPU power, with provider-correct English/Finnish details, five-hour/weekly windows and reset times.
+- Preserve last-known quota data visibly as stale during auth/network/rate-limit failures; keep provider refresh independent of agent and cron refreshes.
+- Bound polling, response size and timeouts; reject redirected requests and never send credentials to the browser.
+- Add synthetic collector, state, localization and responsive browser regressions.
+
 ## 0.5.1
 
 - Localize missing ChatGPT quota status in both the summary and inspector (#1).

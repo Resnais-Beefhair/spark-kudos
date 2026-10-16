@@ -7,6 +7,7 @@
 - [Optional service example](../examples/optional-services.toml)
 - [Deployment and access control](DEPLOYMENT.md)
 - [Shared GPU telemetry contract](GPU-TELEMETRY.md)
+- [Claude subscription usage and privacy](CLAUDE-QUOTA.md)
 - [Architecture](../ARCHITECTURE.md)
 - [Contributing and release verification](../CONTRIBUTING.md)
 - [Security policy](../SECURITY.md)

@@ -59,6 +59,7 @@ def test_default_snapshot_has_one_generic_host_and_safe_ui_metadata():
             "crons": False,
             "resources": False,
             "quotas": False,
+            "claude_quota": False,
         },
     }
     assert "/home/" not in json.dumps(payload["ui"])

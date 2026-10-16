@@ -184,10 +184,46 @@
   function quota(key) {
     return ui.data?.agents?.quotas?.[key] || {};
   }
+  function quotaWindow(q, id, durationMinutes) {
+    const windows = Array.isArray(q?.windows) ? q.windows : [];
+    return windows.find((w) => w?.id === id) ||
+      windows.find((w) => num(w?.duration_minutes) === durationMinutes) || null;
+  }
+  function quotaWindowLabel(providerId, window) {
+    const known = ["five_hour", "seven_day", "seven_day_opus", "seven_day_sonnet", "seven_day_oauth_apps"];
+    return providerId === "claude" && known.includes(window.id)
+      ? t(`quota.window.${window.id}`)
+      : window.label || t("inspector.window");
+  }
+  function quotaStatusText(q, hasData) {
+    const stateKey = {
+      available: null,
+      rate_limited: "quota.status.rateLimited",
+      rate_limit: "quota.status.rateLimited",
+      auth: "quota.status.loginRequired",
+      login_required: "quota.status.loginRequired",
+      unavailable: "quota.status.unavailable",
+      invalid_response: "quota.status.invalidResponse",
+    }[q?.state];
+    let status = stateKey
+      ? t(stateKey)
+      : q?.state === "available"
+        ? hasData ? q.status || t("quota.status.available") : t("quota.noData")
+        : q?.available === false
+          ? t("quota.status.unavailable")
+          : hasData
+            ? q?.status || t("quota.status.available")
+            : t("quota.status.unavailable");
+    if (q?.stale) status = `${status} · ${t("quota.status.stale")}`;
+    return status;
+  }
   function renderCapacity() {
     const enabled = featureEnabled(ui.data, "quotas"),
-      control = $("#quota-control");
+      control = $("#quota-control"),
+      claudeEnabled = featureEnabled(ui.data, "claude_quota"),
+      claudeControl = $("#claude-quota-control");
     control.hidden = !enabled;
+    claudeControl.hidden = !claudeEnabled;
     if (enabled) {
       const q = quota("chatgpt"),
         w = q.windows?.[0],
@@ -202,14 +238,48 @@
             ? "\u2013"
             : t("quota.noData"),
       );
-      setText(
-        "#chatgpt-note",
-        w
-          ? `${t("quota.resetAt", { time: clock(w.resets_at, false) })}${q.resets_available == null ? "" : ` · ${t("quota.resets", { count: fmt(q.resets_available, { maximumFractionDigits: 0 }) })}`}`
-          : q.status || t("quota.unavailable"),
-      );
+      const chatgptNote = w
+        ? `${t("quota.resetAt", { time: clock(w.resets_at, false) })}${q.resets_available == null ? "" : ` · ${t("quota.resets", { count: fmt(q.resets_available, { maximumFractionDigits: 0 }) })}`}`
+        : q.status || t("quota.unavailable");
+      setText("#chatgpt-note", `${chatgptNote}${q.stale ? ` · ${t("quota.status.stale")}` : ""}`);
       $("#chatgpt-life").style.width = `${remaining === null ? 0 : clamp(remaining)}%`;
       $("#chatgpt-life").parentElement.classList.toggle("unknown", remaining === null);
+    }
+    if (claudeEnabled) {
+      const q = quota("claude"),
+        fiveHour = quotaWindow(q, "five_hour", 300),
+        sevenDay = quotaWindow(q, "seven_day", 10080),
+        windows = [fiveHour, sevenDay],
+        remaining = windows.map((w) => num(w?.remaining_percent)),
+        hasData = windows.some(Boolean),
+        value = windows.map((w, index) => {
+          const percent = num(w?.remaining_percent);
+          return `${t(index === 0 ? "quota.fiveHourShort" : "quota.sevenDayShort")} ${percent === null ? "–" : `${fmt(Math.round(percent), { maximumFractionDigits: 0 })}%`}`;
+        }).join(" · ");
+      setText("#claude-value", hasData ? value : "–");
+      const resets = hasData
+        ? t("quota.claudeResetNotes", {
+            fiveHour: fiveHour ? clock(fiveHour.resets_at, false) : "–",
+            sevenDay: sevenDay ? clock(sevenDay.resets_at, false) : "–",
+          })
+        : "";
+      const stateNote = !hasData || q.state !== "available" || q.available === false || q.stale
+        ? quotaStatusText(q, hasData)
+        : "";
+      const note = [resets, stateNote].filter(Boolean).join(" · ") || t("quota.status.available");
+      setText("#claude-note", note);
+      ["#claude-life", "#claude-week-life"].forEach((selector, index) => {
+        const life = $(selector),
+          track = life.parentElement;
+        life.style.width = `${remaining[index] === null ? 0 : clamp(remaining[index])}%`;
+        track.classList.toggle("unknown", remaining[index] === null);
+      });
+      claudeControl.title = t("quota.remainingTitle");
+      claudeControl.setAttribute("aria-label", t("quota.claudeAriaValues", {
+        fiveHour: remaining[0] === null ? "–" : fmt(Math.round(remaining[0]), { maximumFractionDigits: 0 }),
+        sevenDay: remaining[1] === null ? "–" : fmt(Math.round(remaining[1]), { maximumFractionDigits: 0 }),
+        status: note,
+      }));
     }
     const readings = $("#power-readings");
     readings.replaceChildren(...hostEntries(ui.data).map(([id, host]) => {
@@ -1260,17 +1330,18 @@
       (q.windows || []).forEach((w) =>
         box.append(
           metric(
-            w.label || t("inspector.window"),
+            quotaWindowLabel(id, w),
             num(w.remaining_percent) === null ? "–" : t("inspector.remaining", { percent: fmt(w.remaining_percent, { maximumFractionDigits: 0 }) }),
             true,
-            t("inspector.reset", { time: clock(w.resets_at, false) }),
+            [num(w.used_percent) === null ? "" : t("quota.used", { percent: fmt(w.used_percent, { maximumFractionDigits: 0 }) }),
+              t("inspector.reset", { time: clock(w.resets_at, false) })].filter(Boolean).join(" · "),
           ),
         ),
       );
-      box.append(
-        metric(t("inspector.resets"), num(q.resets_available) === null ? t("quota.unavailable") : fmt(q.resets_available, { maximumFractionDigits: 0 })),
-        metric(t("inspector.sourceStatus"), q.status || t("quota.unavailable"), true),
-      );
+      if (q.collected_at) box.append(metric(t("quota.lastUpdated"), clock(q.collected_at, false), true));
+      if (q.resets_available != null || id === "chatgpt")
+        box.append(metric(t("inspector.resets"), num(q.resets_available) === null ? t("quota.unavailable") : fmt(q.resets_available, { maximumFractionDigits: 0 })));
+      box.append(metric(t("inspector.sourceStatus"), quotaStatusText(q, Boolean(q.windows?.length)), true));
     } else if (type === "disk") {
       const disk = (s.disks || []).find((x) => x.mount === id);
       if (!disk) return;

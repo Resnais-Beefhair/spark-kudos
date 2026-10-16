@@ -27,7 +27,15 @@ WEB = Path(__file__).resolve().parents[1] / "src/sisu_kudos/web"
 
 
 def fixture(
-    language="en", dual=False, optional=False, failed=False, preview=False, empty_disks=False
+    language="en",
+    dual=False,
+    optional=False,
+    failed=False,
+    preview=False,
+    empty_disks=False,
+    claude=None,
+    claude_state="available",
+    chatgpt_sample=False,
 ):
     """Deliberate test fixtures; none of these numbers are real measurements."""
     now = datetime.now(UTC)
@@ -136,6 +144,53 @@ def fixture(
         if optional
         else []
     )
+    quotas = safe_agent_snapshot(SimpleNamespace())["quotas"]
+    if chatgpt_sample:
+        quotas["chatgpt"] = {
+            "provider": "ChatGPT",
+            "available": True,
+            "status": "Example subscription",
+            "windows": [
+                {
+                    "id": "codex",
+                    "label": "Codex",
+                    "remaining_percent": 61,
+                    "used_percent": 39,
+                    "duration_minutes": 10080,
+                    "resets_at": int((now + timedelta(days=3)).timestamp()),
+                }
+            ],
+            "collected_at": stamp,
+            "resets_available": 0,
+        }
+    quotas["claude"] = {
+        "provider": "Claude",
+        "available": claude_state != "login_required",
+        "status": "Max 5×",
+        "state": claude_state,
+        "stale": claude_state == "rate_limited",
+        "collected_at": stamp,
+        "windows": []
+        if claude_state == "login_required"
+        else [
+            {
+                "id": "five_hour",
+                "label": "5-hour window",
+                "remaining_percent": 96,
+                "used_percent": 4,
+                "duration_minutes": 300,
+                "resets_at": (now + timedelta(hours=3)).isoformat(),
+            },
+            {
+                "id": "seven_day",
+                "label": "7-day window",
+                "remaining_percent": 100,
+                "used_percent": 0,
+                "duration_minutes": 10080,
+                "resets_at": (now + timedelta(days=3)).isoformat(),
+            },
+        ],
+    }
     return {
         "schema_version": 3,
         "revision": 1,
@@ -146,7 +201,8 @@ def fixture(
             "language": language,
             "local_host_id": "lab-primary",
             "features": {
-                key: optional for key in ("agents", "crons", "logs", "quotas", "resources")
+                **{key: optional for key in ("agents", "crons", "logs", "quotas", "resources")},
+                "claude_quota": optional if claude is None else claude,
             },
         },
         "hosts": hosts,
@@ -155,7 +211,7 @@ def fixture(
         "collector_health": {name: healthy for name in ("cpu", "ram", "gpu", "network", "agents")},
         "agents": {
             "sessions": sessions,
-            "quotas": safe_agent_snapshot(SimpleNamespace())["quotas"],
+            "quotas": quotas,
             "health": [{"source": "hermes", "ok": True}],
             "generated_at": stamp,
         },
@@ -253,6 +309,7 @@ def run(output):
                     "work-section",
                     "agent-resources-section",
                     "quota-control",
+                    "claude-quota-control",
                     "logs-button",
                 ):
                     expect(page.locator(f"#{name}")).to_be_hidden()
@@ -264,7 +321,20 @@ def run(output):
                 page.reload()
                 expect(page.locator("html")).to_have_attribute("lang", "fi")
                 checks.append("Finnish switch and explicit preference survive reload")
-                options.update(language="en", dual=True, optional=True)
+                options.update(claude=True)
+                expect(page.locator("#claude-quota-control")).to_be_visible()
+                expect(page.locator("#quota-control")).to_be_hidden()
+                expect(page.locator("#work-section")).to_be_hidden()
+                expect(page.locator("#claude-value")).to_contain_text("96")
+                expect(page.locator("#claude-quota-control")).to_contain_text("100")
+                page.locator("#claude-quota-control").click()
+                expect(page.locator("#inspector-title")).to_contain_text("Claude")
+                expect(page.locator("#inspector-content")).to_contain_text("96")
+                expect(page.locator("#inspector-content")).not_to_contain_text("1970")
+                page.locator("#inspector [data-close]").click()
+                expect(page.locator("#claude-quota-control")).to_be_focused()
+                checks.append("Claude-only opt-in, five-hour/weekly values, ISO reset and focus")
+                options.update(language="en", dual=True, optional=True, claude=None)
                 page.reload()
                 expect(page.locator(".host-panel")).to_have_count(2)
                 expect(page.locator("#work-section")).to_be_visible()
@@ -319,7 +389,24 @@ def run(output):
                     page.locator(".skip-link").evaluate("n => getComputedStyle(n).clipPath")
                     == "inset(50%)"
                 )
-                options.update(preview=True)
+                for language in ("en", "fi"):
+                    page.locator("#language-select").select_option(language)
+                    options.update(claude_state="rate_limited")
+                    expect(page.locator("#claude-value")).to_contain_text("96")
+                    page.locator("#claude-quota-control").click()
+                    expect(page.locator("#inspector-content")).not_to_contain_text("1970")
+                    expect(page.locator("#inspector-content")).not_to_contain_text("ChatGPT")
+                    page.locator("#inspector [data-close]").click()
+                    options.update(claude_state="login_required")
+                    expect(page.locator("#claude-value")).not_to_contain_text("96")
+                    expect(page.locator("#claude-value")).not_to_contain_text("100")
+                    options.update(claude_state="available")
+                    expect(page.locator("#claude-value")).to_contain_text("96")
+                checks.append(
+                    "Claude rate-limit stale retention, login-required and recovery in EN/FI"
+                )
+                page.locator("#language-select").select_option("en")
+                options.update(preview=True, chatgpt_sample=True)
                 expect(page.locator(".host-panel h2").first).to_have_text("Spark One")
                 page.screenshot(path=str(output / "desktop-en.png"), full_page=True)
                 page.locator("#language-select").select_option("fi")
@@ -330,6 +417,26 @@ def run(output):
                         "document.documentElement.scrollWidth-document.documentElement.clientWidth"
                     )
                     assert overflow <= 1, (width, "horizontal overflow", overflow)
+                    for selector in ("#quota-control", "#claude-quota-control"):
+                        metrics = page.locator(selector).evaluate(
+                            "n => ({width:n.clientWidth, content:n.scrollWidth})"
+                        )
+                        assert metrics["content"] <= metrics["width"] + 1, (
+                            width,
+                            selector,
+                            metrics,
+                        )
+                    if width >= 1366:
+                        boxes = [
+                            page.locator(selector).bounding_box()
+                            for selector in (
+                                "#quota-control",
+                                "#claude-quota-control",
+                                ".dual-power",
+                            )
+                        ]
+                        assert boxes[0]["x"] < boxes[1]["x"] < boxes[2]["x"]
+                        assert abs(boxes[0]["y"] - boxes[2]["y"]) < 1
                     page.screenshot(path=str(output / f"viewport-{width}.png"), full_page=True)
                 checks.append("no horizontal overflow at 1366, 768 and 390 px")
                 options.update(failed=True)
@@ -341,7 +448,7 @@ def run(output):
                 )
                 checks.append("remote failure leaves local host live")
                 # A fresh browser uses the configured site language, not the earlier preference.
-                options.update(language="fi", optional=False, failed=False)
+                options.update(language="fi", optional=False, failed=False, claude=None)
                 fresh = browser.new_context()
                 newpage = fresh.new_page()
                 newpage.on(
