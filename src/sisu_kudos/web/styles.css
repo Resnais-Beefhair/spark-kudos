@@ -1785,8 +1785,8 @@ kbd {
   font-size: 8px;
   color: var(--faint);
 }
-.host-disk-list:empty:after {
-  content: "Levytietoa ei saatavilla";
+.host-disks-empty {
+  margin: 0;
   display: block;
   padding: 5px 0;
   color: var(--faint);

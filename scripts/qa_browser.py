@@ -14,16 +14,21 @@ import threading
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
 
 from sisu_kudos import __version__
+from sisu_kudos.adapters import safe_agent_snapshot
+from sisu_kudos.app import CONTENT_SECURITY_POLICY
 
 WEB = Path(__file__).resolve().parents[1] / "src/sisu_kudos/web"
 
 
-def fixture(language="en", dual=False, optional=False, failed=False, preview=False):
+def fixture(
+    language="en", dual=False, optional=False, failed=False, preview=False, empty_disks=False
+):
     """Deliberate test fixtures; none of these numbers are real measurements."""
     now = datetime.now(UTC)
     stamp = now.isoformat()
@@ -66,6 +71,8 @@ def fixture(language="en", dual=False, optional=False, failed=False, preview=Fal
             "io": [],
         },
     }
+    if empty_disks:
+        system["disks"] = []
     history = [
         {
             "at": (now - timedelta(seconds=2 * i)).isoformat(),
@@ -148,7 +155,7 @@ def fixture(language="en", dual=False, optional=False, failed=False, preview=Fal
         "collector_health": {name: healthy for name in ("cpu", "ram", "gpu", "network", "agents")},
         "agents": {
             "sessions": sessions,
-            "quotas": {},
+            "quotas": safe_agent_snapshot(SimpleNamespace())["quotas"],
             "health": [{"source": "hermes", "ok": True}],
             "generated_at": stamp,
         },
@@ -207,6 +214,7 @@ def run(output):
             self.send_response(200)
             self.send_header("Content-Type", kind + "; charset=utf-8")
             self.send_header("Content-Length", str(len(data)))
+            self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
             self.end_headers()
             self.wfile.write(data)
 
@@ -227,6 +235,9 @@ def run(output):
                 page.on(
                     "pageerror",
                     lambda error: (errors.append(str(error)), print("PAGE ERROR:", str(error))),
+                )
+                page.on(
+                    "console", lambda msg: errors.append(msg.text) if msg.type == "error" else None
                 )
                 page.on(
                     "requestfailed",
@@ -280,6 +291,29 @@ def run(output):
                 expect(page.locator("#logs-dialog")).to_be_visible()
                 page.locator("#logs-dialog [data-close]").click()
                 checks.append("English service and log dialogs")
+                # Exercise adapter defaults in both quota surfaces, not a hand-made status.
+                for language, unavailable in (("en", "not available"), ("fi", "ei saatavilla")):
+                    page.locator("#language-select").select_option(language)
+                    expect(page.locator("#chatgpt-note")).to_have_text(unavailable)
+                    page.locator("#quota-control").click()
+                    expect(page.locator("#inspector-content")).to_contain_text(unavailable)
+                    page.locator("#inspector [data-close]").click()
+                checks.append("missing quota: localized card and inspector in English and Finnish")
+                options.update(empty_disks=True)
+                for language, unavailable in (
+                    ("en", "Disk information not available"),
+                    ("fi", "Levytietoa ei saatavilla"),
+                ):
+                    page.locator("#language-select").select_option(language)
+                    expect(page.locator(".host-disks-empty")).to_have_count(2)
+                    for empty in page.locator(".host-disks-empty").all():
+                        expect(empty).to_have_text(unavailable)
+                    expect(page.locator(".host-disk")).to_have_count(0)
+                options.update(empty_disks=False)
+                expect(page.locator(".host-disks-empty")).to_have_count(0)
+                expect(page.locator(".host-disk")).to_have_count(2)
+                page.locator("#language-select").select_option("en")
+                checks.append("disk rows transition through localized empty states and recover")
                 assert "[object Object]" not in page.locator("body").inner_text()
                 assert (
                     page.locator(".skip-link").evaluate("n => getComputedStyle(n).clipPath")

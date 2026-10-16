@@ -38,7 +38,7 @@ def test_process_views_are_bounded_and_include_self():
 def test_process_rates_use_interval_counters_and_reset_on_pid_reuse(monkeypatch):
     import sisu_kudos.diagnostics as diagnostics
 
-    diagnostics._process_rate_sampler = diagnostics._ProcessRateSampler()
+    collector = diagnostics.ProcessViewCollector()
     snapshot = {
         "pid": 4242,
         "name": "worker",
@@ -53,13 +53,13 @@ def test_process_rates_use_interval_counters_and_reset_on_pid_reuse(monkeypatch)
     clock = iter((10.0, 20.0, 30.0))
     monkeypatch.setattr(diagnostics.time, "monotonic", lambda: next(clock))
 
-    first = diagnostics.collect_process_views()
+    first = collector()
     assert first["cpu"][0]["cpu_percent"] is None
     assert first["io"][0]["read_bytes_sec"] is None
 
     snapshot["cpu_times"] = SimpleNamespace(user=6.0, system=1.0)
     snapshot["io_counters"] = SimpleNamespace(read_bytes=1100, write_bytes=2100)
-    second = diagnostics.collect_process_views()
+    second = collector()
     assert second["cpu"][0]["cpu_percent"] == 20
     assert second["io"][0]["read_bytes_sec"] == 10
     assert second["io"][0]["write_bytes_sec"] == 10
@@ -67,7 +67,7 @@ def test_process_rates_use_interval_counters_and_reset_on_pid_reuse(monkeypatch)
     snapshot["create_time"] = 124.0  # PID was reused; do not bridge the old process.
     snapshot["cpu_times"] = SimpleNamespace(user=50.0, system=0.0)
     snapshot["io_counters"] = SimpleNamespace(read_bytes=9000, write_bytes=9000)
-    reused = diagnostics.collect_process_views()
+    reused = collector()
     assert reused["cpu"][0]["cpu_percent"] is None
     assert reused["io"][0]["read_bytes_sec"] is None
     assert reused["io"][0]["write_bytes_sec"] is None

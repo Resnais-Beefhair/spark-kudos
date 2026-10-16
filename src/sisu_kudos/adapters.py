@@ -81,8 +81,6 @@ def safe_process(row: Any) -> dict[str, Any]:
 
 
 def safe_gpu_snapshot(gpu: Any, collector: dict[str, Any]) -> dict[str, Any]:
-    from dataclasses import asdict
-
     data = asdict(gpu)
     data["memory_percent"] = gpu.memory_percent
     data["gpu_processes"] = (
@@ -202,7 +200,7 @@ def safe_agent_snapshot(snapshot: Any, *, sessions: list[Any] | None = None) -> 
     chatgpt: dict[str, Any] = {
         "provider": "ChatGPT",
         "available": False,
-        "status": "ei saatavilla",
+        "status": "",
         "windows": [],
         "resets_available": None,
         "collected_at": "",
@@ -225,7 +223,7 @@ def safe_agent_snapshot(snapshot: Any, *, sessions: list[Any] | None = None) -> 
                 "available": bool(windows) and not bool(getattr(quota_obj, "error", "")),
                 "status": clean_text(
                     getattr(quota_obj, "plan_name", "ChatGPT")
-                    or getattr(quota_obj, "error", "ei saatavilla"),
+                    or getattr(quota_obj, "error", ""),
                     100,
                 ),
                 "windows": windows,

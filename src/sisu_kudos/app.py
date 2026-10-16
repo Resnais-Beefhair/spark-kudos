@@ -19,6 +19,11 @@ from .resources import read_resource_snapshot
 from .state import LiveState
 
 WEB = Path(__file__).parent / "web"
+CONTENT_SECURITY_POLICY = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; "
+    "img-src 'self' data:; connect-src 'self'; font-src 'self'; "
+    "frame-ancestors 'none'; base-uri 'none'; form-action 'none'"
+)
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -57,10 +62,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Content-Security-Policy"] = (
-            "default-src 'self'; script-src 'self'; style-src 'self'; "
-            "img-src 'self' data:; connect-src 'self'; font-src 'self'"
-        )
+        response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
         return response
 
     @instance.get("/")

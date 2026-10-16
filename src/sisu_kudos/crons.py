@@ -332,7 +332,7 @@ class CronCollector:
                 {
                     "source": f"{runtime}-cron",
                     "ok": not errors,
-                    "message": "; ".join(errors) if errors else "Cron-ajorekisteri luettu",
+                    "message": "; ".join(errors),
                     "count": count,
                 }
             )

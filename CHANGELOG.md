@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1
+
+- Localize missing ChatGPT quota status in both the summary and inspector (#1).
+- Render missing-disk text in the English/Finnish catalog, not CSS; handle empty-to-populated transitions (#2).
+- Keep successful cron health messages empty and language-neutral; retain sanitized source errors (#3).
+- Add CSP frame-ancestors, base-uri and form-action restrictions without weakening existing headers (#4).
+- Match event filtering to the agent-only event allowlist; cron runs retain their separate ledger (#5).
+- Isolate process-rate history to each collector lifetime, remove a duplicate import, and validate remote Linux paths with POSIX semantics (#5).
+- Add pre-fix reproductions, synthetic API regressions and real browser checks under the application CSP.
+
 ## 0.5.0
 
 First public release series. Distribution is through GitHub source and release packages;
