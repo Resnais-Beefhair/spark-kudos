@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.5.3 (unreleased)
+
+- Clarify that a usage-endpoint request-rate limit is not exhaustion of the subscription window.
+
 ## 0.5.2 (unreleased)
 
 - Add an independent, opt-in Claude subscription usage collector using the existing local Claude Code login; never refresh or modify credentials.
