@@ -278,7 +278,7 @@ def run(output):
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    errors, failures, checks = [], [], []
+    errors, failures, checks, capacity_layout = [], [], [], []
     output.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as p:
@@ -426,7 +426,18 @@ def run(output):
                             selector,
                             metrics,
                         )
+                    # Density is a measurable contract, not just zero horizontal overflow.
+                    strip_height = page.locator(".capacity").bounding_box()["height"]
+                    bars = [bar.bounding_box() for bar in page.locator(".quota-lives .life").all()]
+                    assert len(bars) == 2 and abs(bars[0]["y"] - bars[1]["y"]) < 1
+                    assert bars[0]["x"] + bars[0]["width"] <= bars[1]["x"]
+                    for card in page.locator(".capacity > button").all():
+                        if card.is_visible():
+                            assert card.bounding_box()["height"] >= 44
+                    capacity_layout.append({"viewport": width, "height_px": strip_height})
                     if width >= 1366:
+                        # Longer configured host names may legitimately wrap the GPU row.
+                        assert strip_height <= 100, (width, strip_height)
                         boxes = [
                             page.locator(selector).bounding_box()
                             for selector in (
@@ -438,7 +449,10 @@ def run(output):
                         assert boxes[0]["x"] < boxes[1]["x"] < boxes[2]["x"]
                         assert abs(boxes[0]["y"] - boxes[2]["y"]) < 1
                     page.screenshot(path=str(output / f"viewport-{width}.png"), full_page=True)
-                checks.append("no horizontal overflow at 1366, 768 and 390 px")
+                checks.append(
+                    "compact strip <=100px desktop, side-by-side Claude tracks, "
+                    ">=44px targets and no overflow at1366/768/390px"
+                )
                 options.update(failed=True)
                 expect(page.locator('[data-host="compute-node"] .host-state')).to_contain_text(
                     "Yhteys katkesi"
@@ -465,6 +479,7 @@ def run(output):
                     "version": __version__,
                     "fixtures": "synthetic only",
                     "checks": checks,
+                    "capacity_layout": capacity_layout,
                     "page_errors": errors,
                     "request_failures": failures,
                 }

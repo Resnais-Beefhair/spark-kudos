@@ -160,7 +160,7 @@ main {
   margin: auto;
 }
 .capacity {
-  min-height: 76px;
+  min-height: 68px;
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(100%, 220px), 1fr));
   gap: 1px;
@@ -174,11 +174,12 @@ main {
   text-align: left;
 }
 .capacity-cell {
-  padding: 13px 18px;
+  padding: 6px 16px;
   display: grid;
   grid-template-columns: auto 1fr auto;
   align-items: center;
-  gap: 12px;
+  align-content: center;
+  gap: 4px 10px;
   min-width: 0;
 }
 .capacity-cell.quota-cell {
@@ -191,18 +192,32 @@ main {
 }
 .capacity-cell.quota-cell > strong {
   font-size: 18px;
-  line-height: 1.3;
+  line-height: 1.15;
 }
 .capacity-cell.quota-cell .cap-note {
   grid-column: 1/-1;
   text-align: left;
+}
+/* At desktop widths put each provider label and value on one baseline. */
+@media (min-width: 1101px) {
+  .capacity:has(#quota-control:not([hidden])):has(#claude-quota-control:not([hidden])) {
+    grid-template-columns: 0.85fr 1.25fr 0.9fr 1fr;
+  }
+  .capacity-cell.quota-cell > .cap-name {
+    grid-column: 1;
+  }
+  .capacity-cell.quota-cell > strong {
+    grid-column: 2;
+    text-align: right;
+  }
 }
 .capacity-cell strong {
   white-space: nowrap;
 }
 .cap-name {
   font-size: 10px;
-  letter-spacing: 0.16em;
+  letter-spacing: 0.12em;
+  line-height: 1.2;
   color: var(--muted);
 }
 .capacity-cell strong {
@@ -212,7 +227,7 @@ main {
 }
 .cap-note {
   font:
-    10px ui-monospace,
+    10px/1.3 ui-monospace,
     monospace;
   color: var(--muted);
   text-align: right;
@@ -245,6 +260,7 @@ main {
 }
 .quota-lives .life {
   min-width: 0;
+  grid-column: auto;
 }
 .claude-quota strong {
   min-width: 0;
@@ -255,10 +271,11 @@ main {
 }
 .claude-quota .cap-note {
   min-width: 0;
+  text-wrap: pretty;
   overflow-wrap: anywhere;
 }
 .attention-cell {
-  padding: 13px 18px;
+  padding: 6px 16px;
   border-left: 3px solid var(--good) !important;
   background: #171914 !important;
   display: grid;
@@ -279,9 +296,9 @@ main {
     800 9px ui-monospace,
     monospace;
   color: var(--good);
-  border: 1px solid #536258;
-  padding: 4px 6px;
-  grid-row: 1/3;
+  border: 0;
+  padding: 0;
+  align-self: center;
 }
 .warning .stamp {
   color: var(--copper);
@@ -292,10 +309,13 @@ main {
   border-color: #754039;
 }
 .attention-cell strong {
-  font-size: 14px;
+  font-size: 13px;
+  line-height: 1.3;
   font-weight: 600;
 }
 .attention-cell > span:last-child {
+  grid-column: 1/-1;
+  line-height: 1.3;
   font-size: 10px;
   color: var(--muted);
 }
@@ -1225,7 +1245,7 @@ kbd {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
   .attention-cell {
-    grid-column: 1/-1;
+    grid-column: auto;
   }
   .capacity {
     height: auto;
@@ -2204,11 +2224,12 @@ kbd {
 .capacity .dual-power {
   grid-template-columns: 1fr;
   gap: 4px;
-  padding-block: 9px;
+  padding-block: 6px;
+  align-content: center;
 }
 .power-readings {
   display: flex;
-  gap: 20px;
+  gap: 4px 20px;
   flex-wrap: wrap;
   font-size: 11px;
   color: var(--muted);
@@ -2349,6 +2370,6 @@ html[data-activity-connection="stale"] .ticket-activity * {
     grid-template-columns: minmax(0, 1fr);
   }
   .power-readings {
-    gap: 24px;
+    column-gap: 24px;
   }
 }

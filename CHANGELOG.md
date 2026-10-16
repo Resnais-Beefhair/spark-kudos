@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.4 (unreleased)
+
+- Compact the capacity strip: put quota headings and values on one desktop baseline, allocate more width to Claude, and tighten spacing without shrinking quota numbers.
+- Keep both Claude tracks side by side, preserve complete reset dates, and remove the oversized status badge; allow failure details to expand rather than clip.
+- Keep tablet cards in a two-by-two grid and add browser density, track-alignment and click-target regressions.
+
 ## 0.5.3 (unreleased)
 
 - Clarify that a usage-endpoint request-rate limit is not exhaustion of the subscription window.
