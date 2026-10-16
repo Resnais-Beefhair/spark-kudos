@@ -7,7 +7,7 @@ import os
 import re
 import tomllib
 from dataclasses import dataclass, field
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -242,7 +242,7 @@ def _remote_python(value: Any, where: str) -> str:
 
 def _remote_state_path(value: Any, where: str) -> str:
     raw = _string(value, where)
-    if raw and (not Path(raw).is_absolute() or ".." in Path(raw).parts):
+    if raw and (not PurePosixPath(raw).is_absolute() or ".." in PurePosixPath(raw).parts):
         raise _fail(where, "must be an absolute remote path without '..', or empty")
     return raw
 

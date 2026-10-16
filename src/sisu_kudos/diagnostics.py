@@ -92,11 +92,20 @@ class _ProcessRateSampler:
         self.sampled_at = sampled_at
 
 
-_process_rate_sampler = _ProcessRateSampler()
+class ProcessViewCollector:
+    """Own rate history for one collector lifetime, never for the module."""
+
+    def __init__(self) -> None:
+        self._sampler = _ProcessRateSampler()
+
+    def __call__(self, limit: int = 12) -> dict[str, Any]:
+        return collect_process_views(limit, sampler=self._sampler)
 
 
-def collect_process_views(limit: int = 12) -> dict[str, Any]:
-    """Collect CPU, RSS and process I/O leaders from one process-table pass."""
+def collect_process_views(
+    limit: int = 12, *, sampler: _ProcessRateSampler | None = None
+) -> dict[str, Any]:
+    """Collect process leaders; a one-shot call has no previous rate sample."""
     rows: list[dict[str, Any]] = []
     for proc in psutil.process_iter(
         ["pid", "name", "create_time", "cpu_times", "memory_info", "io_counters"]
@@ -108,7 +117,7 @@ def collect_process_views(limit: int = 12) -> dict[str, Any]:
         if row is not None:
             rows.append(row)
 
-    _process_rate_sampler.apply(rows, time.monotonic())
+    (sampler if sampler is not None else _ProcessRateSampler()).apply(rows, time.monotonic())
     by_cpu = sorted(
         rows,
         key=lambda row: (

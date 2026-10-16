@@ -61,6 +61,8 @@ assert.match(htmlSource, /<html lang="en">/);
 assert.match(htmlSource, /id="language-select"[\s\S]*?<option value="en">[\s\S]*?<option value="fi">/);
 assert.doesNotMatch(appSource, /MutationObserver|\.innerHTML\s*=|\["sisu",\s*"kide"\]|id\s*===\s*["'](?:sisu|kide)["']/);
 assert.doesNotMatch(i18nSource, /MutationObserver|\.innerHTML\s*=/);
+// safe_event emits only agent events; cron cards have their own ledger.
+assert.doesNotMatch(appSource, /event\.(?:work_kind|execution_kind)/);
 
 {
   const { api, document } = createI18n();

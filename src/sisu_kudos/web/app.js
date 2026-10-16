@@ -641,12 +641,8 @@
   }
   function renderTimeline() {
     const hist = (ui.data?.history || []).slice(-450),
-      events = (featureEnabled(ui.data, "agents") || featureEnabled(ui.data, "crons")
-        ? (ui.data?.agents?.events || []).filter((event) =>
-            event.work_kind === "cron" || event.execution_kind === "script"
-              ? featureEnabled(ui.data, "crons")
-              : featureEnabled(ui.data, "agents"),
-          )
+      events = (featureEnabled(ui.data, "agents")
+        ? ui.data?.agents?.events || []
         : []).slice(-20),
       root = $("#timeline-chart"),
       svg = sv("svg", {
@@ -1478,17 +1474,14 @@
     }
   }
   function renderEvents() {
-    const enabled = featureEnabled(ui.data, "agents") || featureEnabled(ui.data, "crons");
+    const enabled = featureEnabled(ui.data, "agents");
     $("#chronicle-button").hidden = !enabled;
     if (!enabled) {
       $("#event-list").replaceChildren();
       return;
     }
-    let rows = (ui.data?.agents?.events || []).filter((event) =>
-      event.work_kind === "cron" || event.execution_kind === "script"
-        ? featureEnabled(ui.data, "crons")
-        : featureEnabled(ui.data, "agents"),
-    ).slice().reverse();
+    // The event allowlist contains agent events; cron runs have a separate ledger.
+    let rows = (ui.data?.agents?.events || []).slice().reverse();
     if (ui.eventKind !== "all")
       rows = rows.filter((e) =>
         ui.eventKind === "ERROR" ? e.is_error : e.kind === ui.eventKind,
@@ -1838,6 +1831,14 @@
   function renderHostDisks(view, disks) {
     const rows = Array.isArray(disks) ? disks : [],
       key = rows.map((d, i) => String(d.mount ?? d.label ?? i)).join("|");
+    if (!rows.length) {
+      const empty = view.diskList.querySelector(".host-disks-empty");
+      if (empty) setNodeText(empty, t("host.disksUnavailable"));
+      else view.diskList.replaceChildren(el("p", "host-disks-empty", t("host.disksUnavailable")));
+      view.diskRows.clear();
+      view.diskKey = null;
+      return;
+    }
     if (key !== view.diskKey) {
       view.diskRows.clear();
       const nodes = rows.map((d, i) => {

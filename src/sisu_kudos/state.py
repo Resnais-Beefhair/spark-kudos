@@ -21,7 +21,7 @@ from .adapters import (
 from .config import Settings
 from .crons import CronCollector, compose_crons, is_cron_session
 from .diagnostics import (
-    collect_process_views,
+    ProcessViewCollector,
     scan_largest_files_process,
     validate_mount_identity,
 )
@@ -126,7 +126,7 @@ class LiveState:
             ),
             CollectorSpec(
                 "processes",
-                collect_process_views,
+                ProcessViewCollector(),
                 max(6.0, self.settings.system_interval_s * 3),
                 7.0,
             ),
