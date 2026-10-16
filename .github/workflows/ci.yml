@@ -26,6 +26,12 @@ jobs:
       - run: python -m pip install '.[dev]' build
       - run: ruff check .
       - run: pytest
+      - name: Frontend contracts
+        run: |
+          node scripts/test_i18n.cjs
+          node scripts/test_quotas.cjs
+          node scripts/test_activity.cjs
+          node scripts/test_telemetry.cjs
       - run: python scripts/check_public.py
       - run: sisu-kudos --config examples/single-spark.toml --check-config
       - run: sisu-kudos --config examples/two-sparks.toml --check-config
