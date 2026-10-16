@@ -70,10 +70,10 @@ sisu-kudos
 ## Install a release package
 
 Download the wheel from [GitHub Releases](https://github.com/Resnais-Beefhair/spark-kudos/releases).
-The latest published release is 0.5.1; the development source is 0.5.5. No PyPI package is published. From the download directory:
+The current release is 0.5.6. No PyPI package is published. From the download directory:
 
 ```bash
-uv tool install ./sisu_kudos-0.5.1-py3-none-any.whl
+uv tool install ./sisu_kudos-0.5.6-py3-none-any.whl
 sisu-kudos --version
 sisu-kudos
 ```

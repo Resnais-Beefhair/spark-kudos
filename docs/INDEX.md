@@ -12,6 +12,7 @@
 - [Contributing and release verification](../CONTRIBUTING.md)
 - [Security policy](../SECURITY.md)
 - [Changelog](../CHANGELOG.md)
+- [0.5.6 release notes](releases/0.5.6.md)
 - [0.5.1 release notes](releases/0.5.1.md)
 - [0.5.0 release notes](releases/0.5.0.md)
 

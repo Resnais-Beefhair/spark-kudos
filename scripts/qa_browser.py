@@ -36,6 +36,7 @@ def fixture(
     claude=None,
     claude_state="available",
     chatgpt_sample=False,
+    session_count=1,
 ):
     """Deliberate test fixtures; none of these numbers are real measurements."""
     now = datetime.now(UTC)
@@ -132,6 +133,9 @@ def fixture(
                 "age_seconds": 2,
                 "task": "Model <preview> & analysis",
                 "model": "example-model",
+                "provider": "example-provider",
+                "reasoning": "high",
+                "service_tier": "fast",
                 "runtime": "hermes",
                 "uid": "fixture-session",
                 "updated_at": stamp,
@@ -144,6 +148,18 @@ def fixture(
         if optional
         else []
     )
+    if optional and session_count > 1:
+        sessions = [
+            dict(
+                sessions[0],
+                uid=f"fixture-session-{index}",
+                agent=f"Example worker {index + 1}",
+                task=f"Synthetic analysis task {index + 1} with a deliberately long title",
+                location="Synthetic demo / Example project / Example conversation",
+                started_at=(now - timedelta(hours=index + 1)).isoformat(),
+            )
+            for index in range(session_count)
+        ]
     quotas = safe_agent_snapshot(SimpleNamespace())["quotas"]
     if chatgpt_sample:
         quotas["chatgpt"] = {
@@ -278,7 +294,7 @@ def run(output):
     server.daemon_threads = True
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
-    errors, failures, checks, capacity_layout = [], [], [], []
+    errors, failures, checks, capacity_layout, work_layout = [], [], [], [], []
     output.mkdir(parents=True, exist_ok=True)
     try:
         with sync_playwright() as p:
@@ -351,6 +367,15 @@ def run(output):
                 page.locator("#inspector [data-close]").click()
                 expect(trigger).to_be_focused()
                 checks.append("arbitrary dual-host IDs; remote details; dialog/focus survive SSE")
+                page.locator("#work-list .ticket").first.click()
+                expect(page.locator("#inspector-content")).to_contain_text("example-model")
+                expect(page.locator("#inspector-content")).to_contain_text("Päättely")
+                expect(page.locator("#inspector-content")).to_contain_text("high")
+                expect(page.locator("#inspector-content")).to_contain_text("Fast-tila")
+                expect(page.locator("#inspector-content")).to_contain_text("päällä")
+                page.locator("#inspector [data-close]").click()
+                expect(page.locator("#work-list .ticket").first).to_be_focused()
+                checks.append("compact work details retain model, reasoning and Fast mode")
                 page.locator("#language-select").select_option("en")
                 page.locator("#services-button").click()
                 expect(page.locator("#inspector-title")).to_have_text("Continuous service status")
@@ -405,6 +430,58 @@ def run(output):
                 checks.append(
                     "Claude rate-limit stale retention, login-required and recovery in EN/FI"
                 )
+                options.update(session_count=5)
+                expect(page.locator("#work-list .ticket")).to_have_count(5)
+                for language in ("en", "fi"):
+                    page.locator("#language-select").select_option(language)
+                    for width in (1920, 1440, 1366, 1024, 768, 390):
+                        page.set_viewport_size({"width": width, "height": 1080})
+                        layout = page.locator("#work-list").evaluate("""list => {
+                          const cards = [...list.querySelectorAll('.ticket')];
+                          let overlaps = 0;
+                          for (const card of cards) {
+                            const boxes = [...card.querySelectorAll(
+                              '.agent-id strong,.agent-id small,.task,.ticket-origin,' +
+                              '.ticket-start,.ticket-activity'
+                            )].map(n => n.getBoundingClientRect()).filter(b => b.width > 0);
+                            for (let i = 0; i < boxes.length; i++) {
+                              for (let j = i + 1; j < boxes.length; j++) {
+                                const a = boxes[i], b = boxes[j];
+                                if (a.left < b.right - 1 && b.left < a.right - 1 &&
+                                    a.top < b.bottom - 1 && b.top < a.bottom - 1) overlaps++;
+                              }
+                            }
+                          }
+                          return {
+                            count: cards.length,
+                            overlaps,
+                            height: Math.max(...cards.map(c => c.getBoundingClientRect().height)),
+                            hiddenMeta: cards.every(c =>
+                              getComputedStyle(c.querySelector('.ticket-meta')).display === 'none'),
+                            activity: cards.every(c => c.querySelector('.ticket-activity svg') &&
+                              c.querySelector('.ticket-activity').title.length > 0),
+                            overflow: document.documentElement.scrollWidth - innerWidth
+                          };
+                        }""")
+                        assert layout["count"] == 5, layout
+                        assert layout["overlaps"] == 0, (language, width, layout)
+                        assert layout["overflow"] <= 1, (language, width, layout)
+                        assert 44 <= layout["height"] <= (84 if width < 760 else 62), layout
+                        assert layout["hiddenMeta"] and layout["activity"], layout
+                        work_layout.append({"language": language, "viewport": width, **layout})
+                    page.locator("#work-list .ticket").first.click()
+                    for text in ("example-model", "high", "read_file"):
+                        expect(page.locator("#inspector-content")).to_contain_text(text)
+                    expect(page.locator("#inspector-content")).to_contain_text(
+                        "Fast mode" if language == "en" else "Fast-tila"
+                    )
+                    page.locator("#inspector [data-close]").click()
+                    expect(page.locator("#work-list .ticket").first).to_be_focused()
+                checks.append(
+                    "five compact work cards: EN/FI at1920/1440/1366/1024/768/390px, "
+                    "bounded heights, no collisions, activity and details retained"
+                )
+                page.set_viewport_size({"width": 1920, "height": 1080})
                 page.locator("#language-select").select_option("en")
                 options.update(preview=True, chatgpt_sample=True)
                 expect(page.locator(".host-panel h2").first).to_have_text("Spark One")
@@ -480,6 +557,7 @@ def run(output):
                     "fixtures": "synthetic only",
                     "checks": checks,
                     "capacity_layout": capacity_layout,
+                    "work_layout": work_layout,
                     "page_errors": errors,
                     "request_failures": failures,
                 }

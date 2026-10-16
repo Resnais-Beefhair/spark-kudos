@@ -1217,6 +1217,10 @@
         metric(t("inspector.task"), a.task || a.title || "\u2013", true),
         metric(t("inspector.model"), a.model || "\u2013"),
         metric(t("inspector.provider"), a.provider || "\u2013"),
+        metric(t("inspector.reasoning"), a.reasoning || "\u2013"),
+        metric(t("inspector.fast"), a.service_tier
+          ? t(a.service_tier === "fast" ? "work.fastOn" : "work.fastOff")
+          : "\u2013"),
         metric(
           a.work_kind === "cron" ? t("inspector.cronType") : t("inspector.origin"),
           KudosTelemetry.originLabel(a.location, t("work.originUnavailable")),

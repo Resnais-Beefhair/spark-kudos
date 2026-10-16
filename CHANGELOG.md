@@ -1,28 +1,18 @@
 # Changelog
 
-## 0.5.5 (unreleased)
+## 0.5.6
 
-- Compact the work register: two lines per card instead of four, so several simultaneous jobs take about half the vertical space.
-- Keep agent, runtime, live state, elapsed time, task and origin on the card; the model, reasoning level, speed tier and exact tool name move to the card's detail view, and the activity glyph keeps its meaning as a tooltip.
-- Show elapsed time instead of the clock start time, and let cards share the row width so task titles stay readable.
+Includes the previously unpublished 0.5.2–0.5.5 development changes.
 
-## 0.5.4 (unreleased)
-
-- Compact the capacity strip: put quota headings and values on one desktop baseline, allocate more width to Claude, and tighten spacing without shrinking quota numbers.
-- Keep both Claude tracks side by side, preserve complete reset dates, and remove the oversized status badge; allow failure details to expand rather than clip.
-- Keep tablet cards in a two-by-two grid and add browser density, track-alignment and click-target regressions.
-
-## 0.5.3 (unreleased)
-
-- Clarify that a usage-endpoint request-rate limit is not exhaustion of the subscription window.
-
-## 0.5.2 (unreleased)
-
-- Add an independent, opt-in Claude subscription usage collector using the existing local Claude Code login; never refresh or modify credentials.
-- Place compact ChatGPT and Claude capacity cards next to GPU power, with provider-correct English/Finnish details, five-hour/weekly windows and reset times.
-- Preserve last-known quota data visibly as stale during auth/network/rate-limit failures; keep provider refresh independent of agent and cron refreshes.
-- Bound polling, response size and timeouts; reject redirected requests and never send credentials to the browser.
-- Add synthetic collector, state, localization and responsive browser regressions.
+- Compact the work register to two content lines per desktop card; keep task and origin on separate lines on mobile.
+- Keep agent, runtime, live state, elapsed time, task and origin visible. Model, reasoning, Fast mode and exact tool details are available in the card's dialog; fix missing reasoning/Fast fields found during release QA.
+- Retain the activity glyph, tooltip captions and reduced-motion behavior; show elapsed time instead of clock start time.
+- Compact the capacity strip without shrinking quota values. Keep Claude tracks side by side, preserve complete reset dates, and let failure details expand instead of clipping.
+- Add independent, opt-in Claude subscription usage using an existing local Claude Code login, without refreshing or modifying credentials.
+- Show provider-correct English/Finnish details, five-hour/weekly windows and reset times. Preserve last-confirmed data visibly as stale during failures.
+- Keep provider polling independent of agent/cron refresh; bound timeouts, response sizes and cooldowns, reject redirects, and keep credentials out of browser payloads.
+- Distinguish usage-query throttling from subscription-window exhaustion.
+- Add synthetic collector, state, localization, responsive density/collision, dialog and frontend CI regressions.
 
 ## 0.5.1
 
