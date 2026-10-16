@@ -517,7 +517,6 @@
       if (row.activity.dataset.mode !== activity.mode)
         row.activity.dataset.mode = activity.mode;
       const label = t(activity.labelKey);
-      setNodeText(row.activityLabel, label);
       row.activity.title = label;
     }
   }
@@ -555,14 +554,15 @@
       state = el("small");
     text.append(agent, state);
     identity.append(avatar, text);
-    const origin = el("span", "ticket-origin"),
+    const line = el("span", "ticket-line"),
+      origin = el("span", "ticket-origin"),
       task = el("span", "task"),
       meta = el("span", "ticket-meta"),
       started = el("small", "ticket-start"),
-      activity = el("span", "ticket-activity"),
-      activityLabel = el("small", "activity-label");
-    activity.append(activityGlyph(), activityLabel);
-    button.append(identity, origin, task, meta, started, activity);
+      activity = el("span", "ticket-activity");
+    activity.append(activityGlyph());
+    line.append(task, origin);
+    button.append(identity, line, meta, started, activity);
     return {
       button,
       avatar,
@@ -570,10 +570,10 @@
       state,
       origin,
       task,
+      line,
       meta,
       started,
       activity,
-      activityLabel,
       session: null,
       metaKey: null,
     };
@@ -643,13 +643,13 @@
           waiting: "activity.waiting",
         }[String(s.status || "").toLowerCase()],
         status = s.stale
-          ? t("work.uncertain")
+          ? t("activity.stale")
           : statusKey
             ? t(statusKey)
             : s.status || t("work.statusUnknown");
       setNodeText(
         row.state,
-        `${s.runtime || t("work.runtimeUnknown")}${s.work_kind === "cron" ? ` · ${t("work.cron")}` : ""} · ${status}${s.current_tool ? ` · ${s.current_tool}` : ""}`,
+        `${s.runtime || t("work.runtimeUnknown")}${s.work_kind === "cron" ? ` · ${t("work.cron")}` : ""} · ${status}`,
       );
       setNodeText(
         row.task,
@@ -671,7 +671,9 @@
             el(
               "span",
               `tag ${s.service_tier === "fast" ? "fast" : ""}`,
-              s.service_tier === "fast" ? t("work.fastOn") : t("work.fastOff"),
+              t("work.fast", {
+                state: s.service_tier === "fast" ? t("work.fastOn") : t("work.fastOff"),
+              }),
             ),
           );
         row.meta.replaceChildren(...tags);
@@ -679,7 +681,13 @@
       }
       setNodeText(
         row.started,
-        t("work.started", { time: clock(s.started_at || s.updated_at) }),
+        t("work.runningFor", {
+          age: duration(
+            s.started_at || s.updated_at
+              ? Math.max(0, (Date.now() - instant(s.started_at || s.updated_at)) / 1000)
+              : s.age_seconds,
+          ),
+        }),
       );
       const current = box.children[index];
       if (current !== row.button) box.insertBefore(row.button, current || null);

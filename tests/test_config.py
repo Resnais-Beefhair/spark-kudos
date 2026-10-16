@@ -191,7 +191,7 @@ def test_cli_version_exits_with_package_version(capsys):
     with pytest.raises(SystemExit) as error:
         main(["--version"])
     assert error.value.code == 0
-    assert capsys.readouterr().out.strip() == "sisu-kudos 0.5.4"
+    assert capsys.readouterr().out.strip() == "sisu-kudos 0.5.5"
 
 
 def test_cli_bad_config_exits_with_parse_error(tmp_path):

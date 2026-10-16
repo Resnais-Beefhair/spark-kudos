@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.5 (unreleased)
+
+- Compact the work register: two lines per card instead of four, so several simultaneous jobs take about half the vertical space.
+- Keep agent, runtime, live state, elapsed time, task and origin on the card; the model, reasoning level, speed tier and exact tool name move to the card's detail view, and the activity glyph keeps its meaning as a tooltip.
+- Show elapsed time instead of the clock start time, and let cards share the row width so task titles stay readable.
+
 ## 0.5.4 (unreleased)
 
 - Compact the capacity strip: put quota headings and values on one desktop baseline, allocate more width to Claude, and tighten spacing without shrinking quota numbers.
