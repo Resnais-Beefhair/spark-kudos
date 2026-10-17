@@ -554,20 +554,24 @@
       state = el("small");
     text.append(agent, state);
     identity.append(avatar, text);
-    const line = el("span", "ticket-line"),
+    const heading = el("span", "ticket-heading"),
+      model = el("span", "ticket-model"),
+      line = el("span", "ticket-line"),
       origin = el("span", "ticket-origin"),
       task = el("span", "task"),
       meta = el("span", "ticket-meta"),
       started = el("small", "ticket-start"),
       activity = el("span", "ticket-activity");
     activity.append(activityGlyph());
+    heading.append(identity, model);
     line.append(task, origin);
-    button.append(identity, line, meta, started, activity);
+    button.append(heading, line, meta, started, activity);
     return {
       button,
       avatar,
       agent,
       state,
+      model,
       origin,
       task,
       line,
@@ -655,6 +659,10 @@
         row.task,
         clip(s.task || s.title || t("work.taskUnavailable"), 105),
       );
+      const model = s.execution_kind === "script" ? "" : String(s.model || "");
+      setNodeText(row.model, model);
+      row.model.hidden = !model;
+      row.model.title = model;
       const origin = KudosTelemetry.originLabel(s.location, t("work.originUnavailable"));
       setNodeText(row.origin, origin);
       row.origin.title = origin;

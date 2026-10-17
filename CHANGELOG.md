@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.7 (unreleased)
+
+- Show the observed model name between work status and elapsed time, without adding a card row. Keep full names in a tooltip and details; omit absent and script-only models.
+- Double the activity glyph to 56 × 40 px while retaining 60 px desktop cards and 78 px mobile cards.
+- Cover long/missing/literal model names, live updates, stable glyph identity, motion controls, reduced motion and responsive collisions in browser QA.
+
 ## 0.5.6
 
 Includes the previously unpublished 0.5.2–0.5.5 development changes.

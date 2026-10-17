@@ -37,6 +37,8 @@ def fixture(
     claude_state="available",
     chatgpt_sample=False,
     session_count=1,
+    model="example-model",
+    execution_kind="",
 ):
     """Deliberate test fixtures; none of these numbers are real measurements."""
     now = datetime.now(UTC)
@@ -130,9 +132,10 @@ def fixture(
                 "backend": "hermes",
                 "status": "running",
                 "work_kind": "agent",
+                "execution_kind": execution_kind,
                 "age_seconds": 2,
                 "task": "Model <preview> & analysis",
-                "model": "example-model",
+                "model": model,
                 "provider": "example-provider",
                 "reasoning": "high",
                 "service_tier": "fast",
@@ -157,6 +160,14 @@ def fixture(
                 task=f"Synthetic analysis task {index + 1} with a deliberately long title",
                 location="Synthetic demo / Example project / Example conversation",
                 started_at=(now - timedelta(hours=index + 1)).isoformat(),
+                model=(
+                    model,
+                    "example-provider/very-long-model-identifier-with-context-and-quantization[1m]",
+                    None,
+                    "model <safe> & literal",
+                    "short-model",
+                )[index % 5],
+                status="tool" if index % 2 else "running",
             )
             for index in range(session_count)
         ]
@@ -376,6 +387,43 @@ def run(output):
                 page.locator("#inspector [data-close]").click()
                 expect(page.locator("#work-list .ticket").first).to_be_focused()
                 checks.append("compact work details retain model, reasoning and Fast mode")
+                ticket = page.locator("#work-list .ticket").first
+                expect(ticket.locator(".ticket-model")).to_have_text("example-model")
+                ticket.evaluate(
+                    "n => { window.qaTicket = n; window.qaGlyph = n.querySelector('svg'); }"
+                )
+                options.update(model="model <safe> & literal")
+                expect(ticket.locator(".ticket-model")).to_have_text("model <safe> & literal")
+                assert ticket.locator(".ticket-model").evaluate("n => n.childElementCount") == 0
+                options.update(model=None)
+                expect(ticket.locator(".ticket-model")).to_be_hidden()
+                options.update(model="example-model", execution_kind="script")
+                expect(ticket.locator(".ticket-model")).to_be_hidden()
+                options.update(execution_kind="")
+                options.update(model="example-model")
+                expect(ticket.locator(".ticket-model")).to_have_attribute("title", "example-model")
+                assert ticket.evaluate(
+                    "n => n === window.qaTicket && n.querySelector('svg') === window.qaGlyph"
+                )
+                page.emulate_media(reduced_motion="no-preference")
+                ticket.scroll_into_view_if_needed()
+                animated = ticket.locator(".activity-work-dot")
+                transform = animated.evaluate("n => getComputedStyle(n).transform")
+                page.wait_for_timeout(350)
+                assert animated.evaluate("n => getComputedStyle(n).transform") != transform
+                page.locator("#activity-motion").click()
+                expect(animated).to_have_css("animation-play-state", "paused")
+                page.reload()
+                expect(page.locator("html")).to_have_attribute("data-activity-motion", "off")
+                page.locator("#activity-motion").click()
+                page.emulate_media(reduced_motion="reduce")
+                expect(page.locator(".activity-work-dot").first).to_have_css(
+                    "animation-name", "none"
+                )
+                checks.append(
+                    "inline model updates/absence/escaping, stable SVG, "
+                    "enlarged motion/pause/reload/reduced motion"
+                )
                 page.locator("#language-select").select_option("en")
                 page.locator("#services-button").click()
                 expect(page.locator("#inspector-title")).to_have_text("Continuous service status")
@@ -442,7 +490,7 @@ def run(output):
                           for (const card of cards) {
                             const boxes = [...card.querySelectorAll(
                               '.agent-id strong,.agent-id small,.task,.ticket-origin,' +
-                              '.ticket-start,.ticket-activity'
+                              '.ticket-model,.ticket-start,.ticket-activity'
                             )].map(n => n.getBoundingClientRect()).filter(b => b.width > 0);
                             for (let i = 0; i < boxes.length; i++) {
                               for (let j = i + 1; j < boxes.length; j++) {
@@ -460,6 +508,10 @@ def run(output):
                               getComputedStyle(c.querySelector('.ticket-meta')).display === 'none'),
                             activity: cards.every(c => c.querySelector('.ticket-activity svg') &&
                               c.querySelector('.ticket-activity').title.length > 0),
+                            modelWidths: cards.map(c =>
+                              c.querySelector('.ticket-model').getBoundingClientRect().width),
+                            glyphWidths: cards.map(c => c.querySelector('.ticket-activity svg')
+                              .getBoundingClientRect().width),
                             overflow: document.documentElement.scrollWidth - innerWidth
                           };
                         }""")
@@ -468,6 +520,10 @@ def run(output):
                         assert layout["overflow"] <= 1, (language, width, layout)
                         assert 44 <= layout["height"] <= (84 if width < 760 else 62), layout
                         assert layout["hiddenMeta"] and layout["activity"], layout
+                        assert all(
+                            w >= 24 for i, w in enumerate(layout["modelWidths"]) if i != 2
+                        ), layout
+                        assert all(w == 56 for w in layout["glyphWidths"]), layout
                         work_layout.append({"language": language, "viewport": width, **layout})
                     page.locator("#work-list .ticket").first.click()
                     for text in ("example-model", "high", "read_file"):
