@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.5.9 (unreleased)
+## 0.5.9
+
+Includes the previously unpublished 0.5.7–0.5.8 development changes listed below.
 
 - Replace blanket Hermes error summaries with structured, bilingual diagnostics for model API/stream failures and image-analysis errors: HTTP status, bounded retry/attempt counts, allowlisted exception types and OS errno.
 - Keep arbitrary provider bodies, prompts, tool content, credentials, URLs and routing IDs out of browser payloads; only trusted logger prefixes and typed diagnostic fields cross the boundary.
