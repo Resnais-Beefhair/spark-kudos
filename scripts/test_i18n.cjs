@@ -126,6 +126,26 @@ assert.doesNotMatch(appSource, /event\.(?:work_kind|execution_kind)/);
   assert.equal(api.knownProductText(arbitrary), arbitrary, "unknown content must remain unchanged");
 }
 
+{
+  const { api } = createI18n();
+  api.setLanguage("fi");
+  const apiError = { message: "REST fallback", diagnostic: { kind: "api_request",
+    cause: "service_unavailable", http_status: 503, attempt: 3, max_attempts: 3,
+    error_type: "InternalServerError" } };
+  assert.equal(api.logMessage(apiError), "Mallin API-pyyntö epäonnistui: HTTP 503 (palvelu ei saatavilla); yritys 3/3; InternalServerError");
+  assert.equal(api.logMessage({ diagnostic: { kind: "vision", cause: "broken_pipe", errno: 32 } }),
+    "Kuvan analysointi epäonnistui: katkennut tiedonsiirtoputki (EPIPE); errno 32");
+  assert.match(api.logMessage({ diagnostic: { kind: "api_request", cause: "rate_limit",
+    http_status: 429, retries_exhausted: 3 } }), /HTTP 429.*käyttö- tai nopeusraja.*käytetty \(3\)/);
+  assert.equal(api.logMessage({ message: "Useful fallback", diagnostic: { kind: "unrecognized" } }), "Useful fallback");
+  assert.equal(api.logMessage({ diagnostic: { kind: "vision", cause: "unknown", errno: "PRIVATE",
+    error_type: "PRIVATE_EXCEPTION", attempt: 99999, max_attempts: 3 } }).includes("PRIVATE"), false);
+  api.setLanguage("en");
+  assert.equal(api.logMessage(apiError), "Model API request failed: HTTP 503 (service unavailable); attempt 3/3; InternalServerError");
+  assert.match(api.logMessage({ diagnostic: { kind: "api_stream", cause: "service_unavailable", http_status: 503 } }),
+    /stream failed before delivery: HTTP 503/);
+}
+
 const sample = {
   ui: { local_host_id: "spark-west", features: { agents: true, logs: false, crons: false } },
   hosts: {

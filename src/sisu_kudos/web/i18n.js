@@ -430,6 +430,25 @@
       "logs.toolErrorHidden": "Tool call reported an error; content hidden",
       "logs.toolEventHidden": "Tool call log event; content hidden",
       "logs.proxyDisconnected": "Model proxy client disconnected before response completion; task outcome unknown",
+      "logs.diagnostic.kind.api_request": "Model API request failed",
+      "logs.diagnostic.kind.api_stream": "Model response stream failed before delivery",
+      "logs.diagnostic.kind.vision": "Image analysis failed",
+      "logs.diagnostic.cause.unknown": "cause not classified",
+      "logs.diagnostic.cause.invalid_request": "invalid request",
+      "logs.diagnostic.cause.authentication": "authentication failed",
+      "logs.diagnostic.cause.permission_denied": "permission denied",
+      "logs.diagnostic.cause.not_found": "resource not found",
+      "logs.diagnostic.cause.timeout": "timeout",
+      "logs.diagnostic.cause.request_too_large": "request too large",
+      "logs.diagnostic.cause.rate_limit": "usage or rate limit",
+      "logs.diagnostic.cause.server_error": "server error",
+      "logs.diagnostic.cause.bad_gateway": "upstream gateway error",
+      "logs.diagnostic.cause.service_unavailable": "service unavailable",
+      "logs.diagnostic.cause.connection": "connection failed",
+      "logs.diagnostic.cause.broken_pipe": "broken pipe (EPIPE)",
+      "logs.diagnostic.http": "HTTP {status} ({cause})",
+      "logs.diagnostic.attempt": "attempt {attempt}/{maximum}",
+      "logs.diagnostic.exhausted": "API retries exhausted ({count})",
       "logs.recorded.error": "Error recorded; details in local log [REDACTED]",
       "logs.recorded.critical": "Critical error recorded; details in local log [REDACTED]",
       "logs.recorded.warning": "Warning recorded; details in local log [REDACTED]",
@@ -871,6 +890,25 @@
       "logs.toolErrorHidden": "Työkalukutsu ilmoitti virheestä; sisältö piilotettu",
       "logs.toolEventHidden": "Työkalukutsun lokitapahtuma; sisältö piilotettu",
       "logs.proxyDisconnected": "Mallivälityksen asiakas katkesi ennen vastauksen valmistumista; tehtävän lopputulos tuntematon",
+      "logs.diagnostic.kind.api_request": "Mallin API-pyyntö epäonnistui",
+      "logs.diagnostic.kind.api_stream": "Mallivastauksen suoratoisto epäonnistui ennen toimitusta",
+      "logs.diagnostic.kind.vision": "Kuvan analysointi epäonnistui",
+      "logs.diagnostic.cause.unknown": "virhesyytä ei tunnistettu",
+      "logs.diagnostic.cause.invalid_request": "virheellinen pyyntö",
+      "logs.diagnostic.cause.authentication": "tunnistautuminen epäonnistui",
+      "logs.diagnostic.cause.permission_denied": "käyttöoikeus puuttuu",
+      "logs.diagnostic.cause.not_found": "resurssia ei löytynyt",
+      "logs.diagnostic.cause.timeout": "aikakatkaisu",
+      "logs.diagnostic.cause.request_too_large": "liian suuri pyyntö",
+      "logs.diagnostic.cause.rate_limit": "käyttö- tai nopeusraja",
+      "logs.diagnostic.cause.server_error": "palvelimen sisäinen virhe",
+      "logs.diagnostic.cause.bad_gateway": "taustapalvelun yhdyskäytävävirhe",
+      "logs.diagnostic.cause.service_unavailable": "palvelu ei saatavilla",
+      "logs.diagnostic.cause.connection": "yhteyden muodostus epäonnistui",
+      "logs.diagnostic.cause.broken_pipe": "katkennut tiedonsiirtoputki (EPIPE)",
+      "logs.diagnostic.http": "HTTP {status} ({cause})",
+      "logs.diagnostic.attempt": "yritys {attempt}/{maximum}",
+      "logs.diagnostic.exhausted": "API-uusintayritykset käytetty ({count})",
       "logs.recorded.error": "Virhe kirjattu; tiedot paikallisessa lokissa [REDACTED]",
       "logs.recorded.critical": "Vakava virhe kirjattu; tiedot paikallisessa lokissa [REDACTED]",
       "logs.recorded.warning": "Varoitus kirjattu; tiedot paikallisessa lokissa [REDACTED]",
@@ -991,7 +1029,27 @@
   function catalogKeys(language) {
     return Object.keys(catalog[language] || {}).sort();
   }
+  function logMessage(row) {
+    const d = row?.diagnostic,
+      kind = `logs.diagnostic.kind.${d?.kind}`,
+      causeKey = `logs.diagnostic.cause.${d?.cause}`;
+    if (!d || !Object.hasOwn(catalog.en, kind) || !Object.hasOwn(catalog.en, causeKey))
+      return knownProductText(row?.message);
+    const validNumber = (n, maximum) => Number.isInteger(n) && n >= 1 && n <= maximum,
+      cause = t(causeKey),
+      details = [validNumber(d.http_status, 599) && d.http_status >= 100
+        ? t("logs.diagnostic.http", { status: d.http_status, cause }) : cause];
+    if (validNumber(d.attempt, 1000) && validNumber(d.max_attempts, 1000) && d.attempt <= d.max_attempts)
+      details.push(t("logs.diagnostic.attempt", { attempt: d.attempt, maximum: d.max_attempts }));
+    if (validNumber(d.retries_exhausted, 1000))
+      details.push(t("logs.diagnostic.exhausted", { count: d.retries_exhausted }));
+    if (/^(APIError|APIConnectionError|APITimeoutError|AuthenticationError|PermissionDeniedError|RateLimitError|BadRequestError|NotFoundError|InternalServerError|ClaudeAPIError|TimeoutError|ConnectionError)$/.test(d.error_type || ""))
+      details.push(d.error_type);
+    if (validNumber(d.errno, 4095)) details.push(`errno ${d.errno}`);
+    return `${t(kind)}: ${details.join("; ")}`;
+  }
   const api = {
+    logMessage,
     catalog,
     catalogKeys,
     language: () => current,

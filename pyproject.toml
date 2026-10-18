@@ -1,6 +1,6 @@
 [project]
 name = "sisu-kudos"
-version = "0.5.8"
+version = "0.5.9"
 description = "Configurable read-only operations dashboard for one or two NVIDIA DGX Spark systems"
 readme = "README.md"
 license = "MIT"

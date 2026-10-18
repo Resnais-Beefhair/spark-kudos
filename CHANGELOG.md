@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.9 (unreleased)
+
+- Replace blanket Hermes error summaries with structured, bilingual diagnostics for model API/stream failures and image-analysis errors: HTTP status, bounded retry/attempt counts, allowlisted exception types and OS errno.
+- Keep arbitrary provider bodies, prompts, tool content, credentials, URLs and routing IDs out of browser payloads; only trusted logger prefixes and typed diagnostic fields cross the boundary.
+- Preserve historical event identities, severities, status and acknowledgements; this improves error visibility, not the underlying model or tool failures.
+- Add privacy, malformed-input, localization and responsive log-view regressions.
+
 ## 0.5.8 (unreleased)
 
 - Treat Hermes turn retries as serialized attempts, not nested active counters. A successful end closes previous failed starts; late tool completions cannot resurrect completed work.

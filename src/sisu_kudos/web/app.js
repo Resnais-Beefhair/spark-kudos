@@ -1488,6 +1488,7 @@
           x.category,
           logSources(x).join(","),
           x.event_count,
+          JSON.stringify(x.diagnostic || null),
         ].join("|"),
       ),
     ].join("::");
@@ -1526,7 +1527,7 @@
         detail.append(
           el("span", "log-event-count", t("dialog.eventsInIncident", { count: fmt(x.event_count, { maximumFractionDigits: 0 }) })),
         );
-      detail.append(el("span", "log-message-text", knownText(x.message)));
+      detail.append(el("span", "log-message-text", KudosI18n.logMessage(x)));
       const levelBadge = el("span", "", x.level || "INFO");
       if (x.original_level && x.original_level !== x.level)
         levelBadge.title = t("dialog.originalLevel", { level: x.original_level });

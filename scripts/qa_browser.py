@@ -41,6 +41,7 @@ def fixture(
     execution_kind="",
     conversation_only=False,
     session_status="running",
+    log_diagnostics=False,
 ):
     """Deliberate test fixtures; none of these numbers are real measurements."""
     now = datetime.now(UTC)
@@ -245,7 +246,47 @@ def fixture(
             "health": [{"source": "hermes", "ok": True}],
             "generated_at": stamp,
         },
-        "logs": {"records": [], "counts": {}},
+        "logs": {
+            "records": [
+                {
+                    "id": f"synthetic-log-{i}",
+                    "timestamp": "2026-01-19T15:28:21+00:00",
+                    "runtime": "hermes",
+                    "agent": "Example worker",
+                    "source": "errors",
+                    "sources": ["errors"],
+                    "level": "ERROR",
+                    "category": "operational",
+                    "status": "recorded",
+                    "component": "agent.conversation_loop",
+                    "message": "Safe structured diagnostic",
+                    "diagnostic": diagnostic,
+                }
+                for i, diagnostic in enumerate(
+                    [
+                        {"kind": "vision", "cause": "broken_pipe", "errno": 32},
+                        {
+                            "kind": "api_request",
+                            "cause": "service_unavailable",
+                            "http_status": 503,
+                            "attempt": 3,
+                            "max_attempts": 3,
+                            "error_type": "InternalServerError",
+                        },
+                        {
+                            "kind": "api_request",
+                            "cause": "rate_limit",
+                            "http_status": 429,
+                            "retries_exhausted": 3,
+                        },
+                    ]
+                )
+            ]
+            if log_diagnostics
+            else [],
+            "counts": {"ERROR": 3} if log_diagnostics else {},
+            "sources": [{"name": "errors", "available": True}],
+        },
         "events": [],
     }
 
@@ -278,7 +319,7 @@ def run(output):
             if path == "/api/snapshot":
                 data, kind = json.dumps(fixture(**options)).encode(), "application/json"
             elif path == "/api/logs":
-                data, kind = b'{"records":[],"counts":{},"sources":[]}', "application/json"
+                data, kind = json.dumps(fixture(**options)["logs"]).encode(), "application/json"
             elif path == "/api/agent-resources":
                 data, kind = (
                     b'{"available":true,"resources":[],"counts":{},"warnings":[]}',
@@ -466,6 +507,44 @@ def run(output):
                     expect(page.locator("#inspector-content")).to_contain_text(unavailable)
                     page.locator("#inspector [data-close]").click()
                 checks.append("missing quota: localized card and inspector in English and Finnish")
+                options.update(log_diagnostics=True)
+                expect(page.locator("#log-badge")).to_have_text("3")
+                for width in (1440, 390):
+                    page.set_viewport_size({"width": width, "height": 1080})
+                    for language in ("en", "fi"):
+                        page.locator("#language-select").select_option(language)
+                        page.locator("#logs-button").click()
+                        expect(page.locator("#logs-dialog")).to_be_visible()
+                        page.get_by_role(
+                            "button", name="Errors" if language == "en" else "Virheet", exact=True
+                        ).click()
+                        expect(page.locator("#log-list li")).to_have_count(3)
+                        expect(page.locator("#log-list")).to_contain_text("HTTP 503")
+                        expect(page.locator("#log-list")).to_contain_text("HTTP 429")
+                        expect(page.locator("#log-list")).to_contain_text("errno 32")
+                        expect(page.locator("#log-list")).to_contain_text(
+                            "yritys 3/3" if language == "fi" else "attempt 3/3"
+                        )
+                        expect(page.locator("#log-list")).to_contain_text(
+                            "Kuvan analysointi" if language == "fi" else "Image analysis"
+                        )
+                        expect(page.locator("#log-list")).not_to_contain_text("[REDACTED]")
+                        expect(page.locator("#log-list")).not_to_contain_text(
+                            "Safe structured diagnostic"
+                        )
+                        assert page.locator("#logs-dialog").evaluate(
+                            "n => n.scrollWidth <= n.clientWidth + 1"
+                        )
+                        page.screenshot(
+                            path=str(output / f"logs-{width}-{language}.png"), full_page=True
+                        )
+                        page.locator("#logs-dialog [data-close]").click()
+                checks.append(
+                    "typed log causes, HTTP/retries/errno, Errors filter, EN/FI, desktop/mobile"
+                )
+                options.update(log_diagnostics=False)
+                page.set_viewport_size({"width": 1920, "height": 1080})
+                page.locator("#language-select").select_option("en")
                 options.update(empty_disks=True)
                 for language, unavailable in (
                     ("en", "Disk information not available"),
