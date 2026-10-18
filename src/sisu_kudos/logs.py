@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .log_diagnostics import diagnose, diagnostic_message
 from .log_events import (
     classify,
     classify_proxy_eof,
@@ -115,7 +116,7 @@ def parse_log_line(
         timestamp = parsed.astimezone().isoformat(timespec="milliseconds")
     except ValueError:
         return None
-    return {
+    record = {
         "id": identity("hermes", agent, timestamp, level, raw_component, raw_message),
         "timestamp": timestamp,
         "runtime": "hermes",
@@ -128,6 +129,10 @@ def parse_log_line(
         "category": category,
         "status": status,
     }
+    diagnostic = diagnose(raw_component, raw_message, level)
+    if diagnostic is not None:
+        record.update(diagnostic=diagnostic, message=diagnostic_message(diagnostic))
+    return record
 
 
 def _parse_log_blocks(

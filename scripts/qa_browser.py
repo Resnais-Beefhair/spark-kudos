@@ -37,6 +37,11 @@ def fixture(
     claude_state="available",
     chatgpt_sample=False,
     session_count=1,
+    model="example-model",
+    execution_kind="",
+    conversation_only=False,
+    session_status="running",
+    log_diagnostics=False,
 ):
     """Deliberate test fixtures; none of these numbers are real measurements."""
     now = datetime.now(UTC)
@@ -128,11 +133,13 @@ def fixture(
                 "id": "fixture-session",
                 "agent": "Example worker",
                 "backend": "hermes",
-                "status": "running",
+                "status": session_status,
                 "work_kind": "agent",
+                "execution_kind": execution_kind,
                 "age_seconds": 2,
-                "task": "Model <preview> & analysis",
-                "model": "example-model",
+                "task": "" if conversation_only else "Model <preview> & analysis",
+                "title": "Historical conversation topic",
+                "model": model,
                 "provider": "example-provider",
                 "reasoning": "high",
                 "service_tier": "fast",
@@ -157,6 +164,14 @@ def fixture(
                 task=f"Synthetic analysis task {index + 1} with a deliberately long title",
                 location="Synthetic demo / Example project / Example conversation",
                 started_at=(now - timedelta(hours=index + 1)).isoformat(),
+                model=(
+                    model,
+                    "example-provider/very-long-model-identifier-with-context-and-quantization[1m]",
+                    None,
+                    "model <safe> & literal",
+                    "short-model",
+                )[index % 5],
+                status="tool" if index % 2 else "running",
             )
             for index in range(session_count)
         ]
@@ -231,7 +246,47 @@ def fixture(
             "health": [{"source": "hermes", "ok": True}],
             "generated_at": stamp,
         },
-        "logs": {"records": [], "counts": {}},
+        "logs": {
+            "records": [
+                {
+                    "id": f"synthetic-log-{i}",
+                    "timestamp": "2026-01-19T15:28:21+00:00",
+                    "runtime": "hermes",
+                    "agent": "Example worker",
+                    "source": "errors",
+                    "sources": ["errors"],
+                    "level": "ERROR",
+                    "category": "operational",
+                    "status": "recorded",
+                    "component": "agent.conversation_loop",
+                    "message": "Safe structured diagnostic",
+                    "diagnostic": diagnostic,
+                }
+                for i, diagnostic in enumerate(
+                    [
+                        {"kind": "vision", "cause": "broken_pipe", "errno": 32},
+                        {
+                            "kind": "api_request",
+                            "cause": "service_unavailable",
+                            "http_status": 503,
+                            "attempt": 3,
+                            "max_attempts": 3,
+                            "error_type": "InternalServerError",
+                        },
+                        {
+                            "kind": "api_request",
+                            "cause": "rate_limit",
+                            "http_status": 429,
+                            "retries_exhausted": 3,
+                        },
+                    ]
+                )
+            ]
+            if log_diagnostics
+            else [],
+            "counts": {"ERROR": 3} if log_diagnostics else {},
+            "sources": [{"name": "errors", "available": True}],
+        },
         "events": [],
     }
 
@@ -264,7 +319,7 @@ def run(output):
             if path == "/api/snapshot":
                 data, kind = json.dumps(fixture(**options)).encode(), "application/json"
             elif path == "/api/logs":
-                data, kind = b'{"records":[],"counts":{},"sources":[]}', "application/json"
+                data, kind = json.dumps(fixture(**options)["logs"]).encode(), "application/json"
             elif path == "/api/agent-resources":
                 data, kind = (
                     b'{"available":true,"resources":[],"counts":{},"warnings":[]}',
@@ -376,6 +431,64 @@ def run(output):
                 page.locator("#inspector [data-close]").click()
                 expect(page.locator("#work-list .ticket").first).to_be_focused()
                 checks.append("compact work details retain model, reasoning and Fast mode")
+                ticket = page.locator("#work-list .ticket").first
+                expect(ticket.locator(".ticket-model")).to_have_text("example-model")
+                ticket.evaluate(
+                    "n => { window.qaTicket = n; window.qaGlyph = n.querySelector('svg'); }"
+                )
+                options.update(model="model <safe> & literal")
+                expect(ticket.locator(".ticket-model")).to_have_text("model <safe> & literal")
+                assert ticket.locator(".ticket-model").evaluate("n => n.childElementCount") == 0
+                options.update(model=None)
+                expect(ticket.locator(".ticket-model")).to_be_hidden()
+                options.update(model="example-model", execution_kind="script")
+                expect(ticket.locator(".ticket-model")).to_be_hidden()
+                options.update(execution_kind="")
+                options.update(model="example-model")
+                expect(ticket.locator(".ticket-model")).to_have_attribute("title", "example-model")
+                assert ticket.evaluate(
+                    "n => n === window.qaTicket && n.querySelector('svg') === window.qaGlyph"
+                )
+                page.emulate_media(reduced_motion="no-preference")
+                ticket.scroll_into_view_if_needed()
+                animated = ticket.locator(".activity-work-dot")
+                transform = animated.evaluate("n => getComputedStyle(n).transform")
+                page.wait_for_timeout(350)
+                assert animated.evaluate("n => getComputedStyle(n).transform") != transform
+                page.locator("#activity-motion").click()
+                expect(animated).to_have_css("animation-play-state", "paused")
+                page.reload()
+                expect(page.locator("html")).to_have_attribute("data-activity-motion", "off")
+                page.locator("#activity-motion").click()
+                page.emulate_media(reduced_motion="reduce")
+                expect(page.locator(".activity-work-dot").first).to_have_css(
+                    "animation-name", "none"
+                )
+                checks.append(
+                    "inline model updates/absence/escaping, stable SVG, "
+                    "enlarged motion/pause/reload/reduced motion"
+                )
+                page.locator("#language-select").select_option("en")
+                options.update(conversation_only=True)
+                for language, unavailable, context_label in (
+                    ("en", "Task name not available", "Conversation title"),
+                    ("fi", "Tehtävän nimeä ei saatavilla", "Keskustelun otsikko"),
+                ):
+                    page.locator("#language-select").select_option(language)
+                    expect(ticket.locator(".task")).to_have_text(unavailable)
+                    expect(ticket).not_to_contain_text("Historical conversation topic")
+                    ticket.click()
+                    expect(page.locator("#inspector-content")).to_contain_text(context_label)
+                    expect(page.locator("#inspector-content")).to_contain_text(
+                        "Historical conversation topic"
+                    )
+                    page.locator("#inspector [data-close]").click()
+                options.update(session_status="idle")
+                expect(page.locator("#work-list .ticket")).to_have_count(0)
+                options.update(session_status="running", conversation_only=False)
+                expect(page.locator("#work-list .ticket")).to_have_count(1)
+                expect(ticket.locator(".task")).to_have_text("Model <preview> & analysis")
+                checks.append("closed turn removed; historical Hermes title is context, EN/FI")
                 page.locator("#language-select").select_option("en")
                 page.locator("#services-button").click()
                 expect(page.locator("#inspector-title")).to_have_text("Continuous service status")
@@ -394,6 +507,44 @@ def run(output):
                     expect(page.locator("#inspector-content")).to_contain_text(unavailable)
                     page.locator("#inspector [data-close]").click()
                 checks.append("missing quota: localized card and inspector in English and Finnish")
+                options.update(log_diagnostics=True)
+                expect(page.locator("#log-badge")).to_have_text("3")
+                for width in (1440, 390):
+                    page.set_viewport_size({"width": width, "height": 1080})
+                    for language in ("en", "fi"):
+                        page.locator("#language-select").select_option(language)
+                        page.locator("#logs-button").click()
+                        expect(page.locator("#logs-dialog")).to_be_visible()
+                        page.get_by_role(
+                            "button", name="Errors" if language == "en" else "Virheet", exact=True
+                        ).click()
+                        expect(page.locator("#log-list li")).to_have_count(3)
+                        expect(page.locator("#log-list")).to_contain_text("HTTP 503")
+                        expect(page.locator("#log-list")).to_contain_text("HTTP 429")
+                        expect(page.locator("#log-list")).to_contain_text("errno 32")
+                        expect(page.locator("#log-list")).to_contain_text(
+                            "yritys 3/3" if language == "fi" else "attempt 3/3"
+                        )
+                        expect(page.locator("#log-list")).to_contain_text(
+                            "Kuvan analysointi" if language == "fi" else "Image analysis"
+                        )
+                        expect(page.locator("#log-list")).not_to_contain_text("[REDACTED]")
+                        expect(page.locator("#log-list")).not_to_contain_text(
+                            "Safe structured diagnostic"
+                        )
+                        assert page.locator("#logs-dialog").evaluate(
+                            "n => n.scrollWidth <= n.clientWidth + 1"
+                        )
+                        page.screenshot(
+                            path=str(output / f"logs-{width}-{language}.png"), full_page=True
+                        )
+                        page.locator("#logs-dialog [data-close]").click()
+                checks.append(
+                    "typed log causes, HTTP/retries/errno, Errors filter, EN/FI, desktop/mobile"
+                )
+                options.update(log_diagnostics=False)
+                page.set_viewport_size({"width": 1920, "height": 1080})
+                page.locator("#language-select").select_option("en")
                 options.update(empty_disks=True)
                 for language, unavailable in (
                     ("en", "Disk information not available"),
@@ -442,7 +593,7 @@ def run(output):
                           for (const card of cards) {
                             const boxes = [...card.querySelectorAll(
                               '.agent-id strong,.agent-id small,.task,.ticket-origin,' +
-                              '.ticket-start,.ticket-activity'
+                              '.ticket-model,.ticket-start,.ticket-activity'
                             )].map(n => n.getBoundingClientRect()).filter(b => b.width > 0);
                             for (let i = 0; i < boxes.length; i++) {
                               for (let j = i + 1; j < boxes.length; j++) {
@@ -460,6 +611,10 @@ def run(output):
                               getComputedStyle(c.querySelector('.ticket-meta')).display === 'none'),
                             activity: cards.every(c => c.querySelector('.ticket-activity svg') &&
                               c.querySelector('.ticket-activity').title.length > 0),
+                            modelWidths: cards.map(c =>
+                              c.querySelector('.ticket-model').getBoundingClientRect().width),
+                            glyphWidths: cards.map(c => c.querySelector('.ticket-activity svg')
+                              .getBoundingClientRect().width),
                             overflow: document.documentElement.scrollWidth - innerWidth
                           };
                         }""")
@@ -468,6 +623,10 @@ def run(output):
                         assert layout["overflow"] <= 1, (language, width, layout)
                         assert 44 <= layout["height"] <= (84 if width < 760 else 62), layout
                         assert layout["hiddenMeta"] and layout["activity"], layout
+                        assert all(
+                            w >= 24 for i, w in enumerate(layout["modelWidths"]) if i != 2
+                        ), layout
+                        assert all(w == 56 for w in layout["glyphWidths"]), layout
                         work_layout.append({"language": language, "viewport": width, **layout})
                     page.locator("#work-list .ticket").first.click()
                     for text in ("example-model", "high", "read_file"):

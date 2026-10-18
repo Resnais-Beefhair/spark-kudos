@@ -554,20 +554,24 @@
       state = el("small");
     text.append(agent, state);
     identity.append(avatar, text);
-    const line = el("span", "ticket-line"),
+    const heading = el("span", "ticket-heading"),
+      model = el("span", "ticket-model"),
+      line = el("span", "ticket-line"),
       origin = el("span", "ticket-origin"),
       task = el("span", "task"),
       meta = el("span", "ticket-meta"),
       started = el("small", "ticket-start"),
       activity = el("span", "ticket-activity");
     activity.append(activityGlyph());
+    heading.append(identity, model);
     line.append(task, origin);
-    button.append(identity, line, meta, started, activity);
+    button.append(heading, line, meta, started, activity);
     return {
       button,
       avatar,
       agent,
       state,
+      model,
       origin,
       task,
       line,
@@ -653,12 +657,16 @@
       );
       setNodeText(
         row.task,
-        clip(s.task || s.title || t("work.taskUnavailable"), 105),
+        clip(KudosTelemetry.taskLabel(s, t("work.taskUnavailable")), 105),
       );
+      const model = s.execution_kind === "script" ? "" : String(s.model || "");
+      setNodeText(row.model, model);
+      row.model.hidden = !model;
+      row.model.title = model;
       const origin = KudosTelemetry.originLabel(s.location, t("work.originUnavailable"));
       setNodeText(row.origin, origin);
       row.origin.title = origin;
-      row.task.title = s.task || s.title || "";
+      row.task.title = KudosTelemetry.taskLabel(s);
       const metaKey = [s.model, s.reasoning, s.service_tier, KudosI18n.language()].join("|");
       if (metaKey !== row.metaKey) {
         const tags = [el("span", "tag model", s.model || t("inspector.modelUnavailable"))];
@@ -1214,7 +1222,7 @@
       title = a.agent || t("work.agentFallback");
       kicker = `${String(a.runtime || "").toUpperCase()}${a.work_kind === "cron" ? ` · ${t("inspector.cronType").toUpperCase()}` : ""} · ${a.stale ? t("inspector.statusUncertain") : String(a.status || "").toUpperCase()}`;
       box.append(
-        metric(t("inspector.task"), a.task || a.title || "\u2013", true),
+        metric(t("inspector.task"), KudosTelemetry.taskLabel(a, t("work.taskUnavailable")), true),
         metric(t("inspector.model"), a.model || "\u2013"),
         metric(t("inspector.provider"), a.provider || "\u2013"),
         metric(t("inspector.reasoning"), a.reasoning || "\u2013"),
@@ -1230,6 +1238,8 @@
         metric(t("inspector.age"), duration(a.age_seconds)),
         metric(t("inspector.tokens"), num(a.task_total_tokens) === null ? "\u2013" : fmt(a.task_total_tokens, { maximumFractionDigits: 0 })),
       );
+      if (a.runtime === "hermes" && a.title)
+        box.append(metric(t("inspector.conversation"), a.title, true));
     } else if (type === "resource") {
       title =
         {
@@ -1478,6 +1488,7 @@
           x.category,
           logSources(x).join(","),
           x.event_count,
+          JSON.stringify(x.diagnostic || null),
         ].join("|"),
       ),
     ].join("::");
@@ -1516,7 +1527,7 @@
         detail.append(
           el("span", "log-event-count", t("dialog.eventsInIncident", { count: fmt(x.event_count, { maximumFractionDigits: 0 }) })),
         );
-      detail.append(el("span", "log-message-text", knownText(x.message)));
+      detail.append(el("span", "log-message-text", KudosI18n.logMessage(x)));
       const levelBadge = el("span", "", x.level || "INFO");
       if (x.original_level && x.original_level !== x.level)
         levelBadge.title = t("dialog.originalLevel", { level: x.original_level });

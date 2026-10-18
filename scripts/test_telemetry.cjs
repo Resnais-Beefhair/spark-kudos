@@ -91,3 +91,8 @@ assert.equal(
   "M90.00,32.00",
 );
 console.log("telemetry pure rules: PASS");
+// Historical conversation titles are context, never evidence of current work.
+assert.equal(u.taskLabel({ runtime: "hermes", title: "Old topic" }, "Unknown task"), "Unknown task");
+assert.equal(u.taskLabel({ runtime: "hermes", title: "Old topic", task: "Current task" }), "Current task");
+assert.equal(u.taskLabel({ runtime: "openclaw", title: "Observed task" }), "Observed task");
+assert.equal(u.taskLabel({ runtime: "hermes", title: "Old topic" }), "");

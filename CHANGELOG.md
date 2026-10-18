@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.9
+
+Includes the previously unpublished 0.5.7–0.5.8 development changes listed below.
+
+- Replace blanket Hermes error summaries with structured, bilingual diagnostics for model API/stream failures and image-analysis errors: HTTP status, bounded retry/attempt counts, allowlisted exception types and OS errno.
+- Keep arbitrary provider bodies, prompts, tool content, credentials, URLs and routing IDs out of browser payloads; only trusted logger prefixes and typed diagnostic fields cross the boundary.
+- Preserve historical event identities, severities, status and acknowledgements; this improves error visibility, not the underlying model or tool failures.
+- Add privacy, malformed-input, localization and responsive log-view regressions.
+
+## 0.5.8 (unreleased)
+
+- Treat Hermes turn retries as serialized attempts, not nested active counters. A successful end closes previous failed starts; late tool completions cannot resurrect completed work.
+- Preserve gateway/process-identity checks, concurrent sessions and compression-child activity. No agent profiles or gateways are modified.
+- Separate persistent Hermes conversation titles from current task labels; show historical titles explicitly as context in details.
+- Add lifecycle, projection, localization and browser regressions.
+
+## 0.5.7 (unreleased)
+
+- Show the observed model name between work status and elapsed time, without adding a card row. Keep full names in a tooltip and details; omit absent and script-only models.
+- Double the activity glyph to 56 × 40 px while retaining 60 px desktop cards and 78 px mobile cards.
+- Cover long/missing/literal model names, live updates, stable glyph identity, motion controls, reduced motion and responsive collisions in browser QA.
+
 ## 0.5.6
 
 Includes the previously unpublished 0.5.2–0.5.5 development changes.

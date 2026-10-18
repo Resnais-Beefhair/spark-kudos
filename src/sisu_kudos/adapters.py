@@ -29,11 +29,13 @@ def load_sisu_collectors(repo: Path | None = None) -> Any:
 
 
 def load_agent_service(repo: Path, openclaw_home: Path | None = None) -> Any:
+    from .hermes_sessions import serialized_hermes_collector
     from .openclaw_sessions import ReadOnlyOpenClawCollector
 
     _add_path(repo / "src")
     module = importlib.import_module("agentmon.service")
     service = module.MonitorService()
+    service.hermes_collector = serialized_hermes_collector(service.hermes_collector)
     service.openclaw_collector = ReadOnlyOpenClawCollector(
         openclaw_home or Path.home() / ".openclaw", service.resolver
     )
@@ -160,7 +162,14 @@ def safe_session(session: Any, snapshot_timestamp: str = "") -> dict[str, Any]:
         "model": clean_text(getattr(session, "model", "—"), 80),
         "provider": clean_text(getattr(session, "provider", "—"), 40),
         "title": clean_text(getattr(session, "title", ""), 120),
-        "task": clean_text(getattr(session, "title", ""), 180),
+        # Hermes titles name persistent conversations, not the current turn.
+        # Never use task_preview: it may contain a raw user prompt.
+        "task": clean_text(
+            getattr(session, "task_title", "")
+            if getattr(session, "runtime", "") == "hermes"
+            else getattr(session, "title", ""),
+            180,
+        ),
         "location": safe_location(getattr(session, "discord_location", "—")),
         "started_at": clean_text(
             getattr(session, "task_started_at", "") or getattr(session, "started_at", ""), 40

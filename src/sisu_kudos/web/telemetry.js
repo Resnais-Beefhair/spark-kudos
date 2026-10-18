@@ -74,6 +74,9 @@
       return fallback;
     return String(value);
   }
+  function taskLabel(session, fallback = "") {
+    return session.task || (session.runtime !== "hermes" ? session.title : "") || fallback;
+  }
   function agentActivity(session, context = {}) {
     const state = (mode, labelKey, animated = false) => ({ mode, labelKey, animated });
     if (session.status === "error") return state("error", "activity.error");
@@ -110,6 +113,7 @@
     historyPoints,
     historyPath,
     originLabel,
+    taskLabel,
     agentActivity,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
