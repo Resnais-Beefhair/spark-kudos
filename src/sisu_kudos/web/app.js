@@ -657,7 +657,7 @@
       );
       setNodeText(
         row.task,
-        clip(s.task || s.title || t("work.taskUnavailable"), 105),
+        clip(KudosTelemetry.taskLabel(s, t("work.taskUnavailable")), 105),
       );
       const model = s.execution_kind === "script" ? "" : String(s.model || "");
       setNodeText(row.model, model);
@@ -666,7 +666,7 @@
       const origin = KudosTelemetry.originLabel(s.location, t("work.originUnavailable"));
       setNodeText(row.origin, origin);
       row.origin.title = origin;
-      row.task.title = s.task || s.title || "";
+      row.task.title = KudosTelemetry.taskLabel(s);
       const metaKey = [s.model, s.reasoning, s.service_tier, KudosI18n.language()].join("|");
       if (metaKey !== row.metaKey) {
         const tags = [el("span", "tag model", s.model || t("inspector.modelUnavailable"))];
@@ -1222,7 +1222,7 @@
       title = a.agent || t("work.agentFallback");
       kicker = `${String(a.runtime || "").toUpperCase()}${a.work_kind === "cron" ? ` · ${t("inspector.cronType").toUpperCase()}` : ""} · ${a.stale ? t("inspector.statusUncertain") : String(a.status || "").toUpperCase()}`;
       box.append(
-        metric(t("inspector.task"), a.task || a.title || "\u2013", true),
+        metric(t("inspector.task"), KudosTelemetry.taskLabel(a, t("work.taskUnavailable")), true),
         metric(t("inspector.model"), a.model || "\u2013"),
         metric(t("inspector.provider"), a.provider || "\u2013"),
         metric(t("inspector.reasoning"), a.reasoning || "\u2013"),
@@ -1238,6 +1238,8 @@
         metric(t("inspector.age"), duration(a.age_seconds)),
         metric(t("inspector.tokens"), num(a.task_total_tokens) === null ? "\u2013" : fmt(a.task_total_tokens, { maximumFractionDigits: 0 })),
       );
+      if (a.runtime === "hermes" && a.title)
+        box.append(metric(t("inspector.conversation"), a.title, true));
     } else if (type === "resource") {
       title =
         {

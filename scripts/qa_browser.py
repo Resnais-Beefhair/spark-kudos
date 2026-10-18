@@ -39,6 +39,8 @@ def fixture(
     session_count=1,
     model="example-model",
     execution_kind="",
+    conversation_only=False,
+    session_status="running",
 ):
     """Deliberate test fixtures; none of these numbers are real measurements."""
     now = datetime.now(UTC)
@@ -130,11 +132,12 @@ def fixture(
                 "id": "fixture-session",
                 "agent": "Example worker",
                 "backend": "hermes",
-                "status": "running",
+                "status": session_status,
                 "work_kind": "agent",
                 "execution_kind": execution_kind,
                 "age_seconds": 2,
-                "task": "Model <preview> & analysis",
+                "task": "" if conversation_only else "Model <preview> & analysis",
+                "title": "Historical conversation topic",
                 "model": model,
                 "provider": "example-provider",
                 "reasoning": "high",
@@ -424,6 +427,27 @@ def run(output):
                     "inline model updates/absence/escaping, stable SVG, "
                     "enlarged motion/pause/reload/reduced motion"
                 )
+                page.locator("#language-select").select_option("en")
+                options.update(conversation_only=True)
+                for language, unavailable, context_label in (
+                    ("en", "Task name not available", "Conversation title"),
+                    ("fi", "Tehtävän nimeä ei saatavilla", "Keskustelun otsikko"),
+                ):
+                    page.locator("#language-select").select_option(language)
+                    expect(ticket.locator(".task")).to_have_text(unavailable)
+                    expect(ticket).not_to_contain_text("Historical conversation topic")
+                    ticket.click()
+                    expect(page.locator("#inspector-content")).to_contain_text(context_label)
+                    expect(page.locator("#inspector-content")).to_contain_text(
+                        "Historical conversation topic"
+                    )
+                    page.locator("#inspector [data-close]").click()
+                options.update(session_status="idle")
+                expect(page.locator("#work-list .ticket")).to_have_count(0)
+                options.update(session_status="running", conversation_only=False)
+                expect(page.locator("#work-list .ticket")).to_have_count(1)
+                expect(ticket.locator(".task")).to_have_text("Model <preview> & analysis")
+                checks.append("closed turn removed; historical Hermes title is context, EN/FI")
                 page.locator("#language-select").select_option("en")
                 page.locator("#services-button").click()
                 expect(page.locator("#inspector-title")).to_have_text("Continuous service status")

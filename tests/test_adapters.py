@@ -1,8 +1,27 @@
 from dataclasses import dataclass, field
 
-from sisu_kudos.adapters import clean_text, safe_agent_snapshot, safe_event, safe_location
+from sisu_kudos.adapters import (
+    clean_text,
+    safe_agent_snapshot,
+    safe_event,
+    safe_location,
+    safe_session,
+)
 from sisu_kudos.config import Settings
 from sisu_kudos.state import LiveState
+
+
+def test_hermes_conversation_title_is_not_a_current_task():
+    row = Session(task_preview="Old conversation topic", title="Old conversation topic")
+    public = safe_session(row)
+    assert public["title"] == "Old conversation topic"
+    assert public["task"] == ""
+
+
+def test_explicit_current_task_is_preserved_for_hermes():
+    row = Session(task_preview="Old conversation topic", title="Old conversation topic")
+    row.task_title = "Explicit current task"
+    assert safe_session(row)["task"] == "Explicit current task"
 
 
 @dataclass
@@ -27,6 +46,7 @@ class Session:
     provider: str = "test"
     title: str = "Safe display title"
     task_preview: str = "SECRET raw user prompt"
+    task_title: str = ""
     discord_location: str = "thread 1539664999956615168"
     age_seconds: float = 2
     updated_at: str = "2026-08-15T20:01:00+03:00"

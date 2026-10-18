@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.8 (unreleased)
+
+- Treat Hermes turn retries as serialized attempts, not nested active counters. A successful end closes previous failed starts; late tool completions cannot resurrect completed work.
+- Preserve gateway/process-identity checks, concurrent sessions and compression-child activity. No agent profiles or gateways are modified.
+- Separate persistent Hermes conversation titles from current task labels; show historical titles explicitly as context in details.
+- Add lifecycle, projection, localization and browser regressions.
+
 ## 0.5.7 (unreleased)
 
 - Show the observed model name between work status and elapsed time, without adding a card row. Keep full names in a tooltip and details; omit absent and script-only models.
