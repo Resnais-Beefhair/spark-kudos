@@ -188,10 +188,12 @@ def test_cli_passes_loaded_server_settings_to_uvicorn(tmp_path, monkeypatch):
 
 
 def test_cli_version_exits_with_package_version(capsys):
+    from sisu_kudos import __version__
+
     with pytest.raises(SystemExit) as error:
         main(["--version"])
     assert error.value.code == 0
-    assert capsys.readouterr().out.strip() == "sisu-kudos 0.5.9"
+    assert capsys.readouterr().out.strip() == f"sisu-kudos {__version__}"
 
 
 def test_cli_bad_config_exits_with_parse_error(tmp_path):

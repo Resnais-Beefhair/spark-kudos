@@ -35,7 +35,13 @@ def row():
         "cores": 20,
         "uptime": 100,
         "ram": {"total": 128 * 1024**3, "available": 16 * 1024**3},
-        "disk": {"total": 1000, "free": 200, "used": 700, "percent": 77.8},
+        "disk": {
+            "total": 1000,
+            "free": 200,
+            "used": 700,
+            "percent": 77.8,
+            "source": "/dev/nvme0n1p1",
+        },
         "net": {"eth0": [1000, 2000]},
         "guard": {
             "boot_id": BOOT,
@@ -95,6 +101,7 @@ def test_success_uma_and_network_rates(row):
     assert first["ram"]["used_percent"] == 87.5
     assert first["gpu"]["memory_percent"] == first["ram"]["used_percent"]
     assert first["disks"][0]["free_gb"] == 200 / 1024**3  # not total-used
+    assert first["disks"][0]["source"] == "/dev/nvme0n1p1"
     assert first["processes"]["count"] == 2
     assert first["processes"]["cpu"][0]["cpu_percent"] is None
     assert first["processes"]["io"][0]["read_bytes_sec"] is None
@@ -183,6 +190,12 @@ def test_remote_output_allowlist_and_bad_numbers(row):
     assert data["model"]["name"] is None
     assert data["model"]["health"] == "partial"
     assert all(number(v) is None for v in (True, "3", float("inf"), float("nan"), -1))
+
+
+def test_remote_disk_source_is_sanitized(row):
+    row["disk"]["source"] = "/dev/root\nnot-a-source"
+    data = RemoteCollector(Settings(remote_host="worker", remote_hostname="worker")).parse(row)
+    assert data["disks"][0]["source"] is None
 
 
 def test_model_endpoint_missing_or_malformed_is_unknown_and_counter_reset_is_unknown(row):

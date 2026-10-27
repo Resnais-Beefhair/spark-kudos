@@ -49,6 +49,7 @@ class Settings:
     model_url: str = ""
     agents_enabled: bool = False
     logs_enabled: bool = False
+    log_details_enabled: bool = False
     crons_enabled: bool = False
     resources_enabled: bool = False
     quotas_enabled: bool = False
@@ -428,7 +429,10 @@ def _parse(data: dict[str, Any], base: Path) -> Settings:
     )
 
     logs = _table(data.get("logs", {}), "logs")
-    _only(logs, {"hermes_profiles"}, "logs")
+    _only(logs, {"hermes_profiles", "show_details"}, "logs")
+    show_details = logs.get("show_details", False)
+    if not isinstance(show_details, bool):
+        raise _fail("logs.show_details", "must be a boolean")
     profiles_value = logs.get("hermes_profiles", [])
     if not isinstance(profiles_value, list):
         raise _fail("logs.hermes_profiles", "must be an array of tables")
@@ -488,6 +492,7 @@ def _parse(data: dict[str, Any], base: Path) -> Settings:
         resource_snapshot_path=resource_snapshot_path,
         claude_credentials_path=claude_credentials_path,
         hermes_profiles=tuple(profiles),
+        log_details_enabled=show_details,
         **flags,
         **interval_values,
     )

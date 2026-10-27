@@ -132,9 +132,21 @@ assert.doesNotMatch(appSource, /event\.(?:work_kind|execution_kind)/);
   const apiError = { message: "REST fallback", diagnostic: { kind: "api_request",
     cause: "service_unavailable", http_status: 503, attempt: 3, max_attempts: 3,
     error_type: "InternalServerError" } };
+  const original = "SomeUnknownError: actual reason\n/example/operator.py <img src=x onerror=alert(1)>";
+  assert.equal(api.logMessage({ ...apiError, original_message: original }), original);
+  assert.equal(api.logMessage({ message: "fallback", original_message: {} }), "fallback");
+  assert.equal(api.logMessage({ message: "fallback", original_message: "x".repeat(32769) }), "fallback");
   assert.equal(api.logMessage(apiError), "Mallin API-pyyntö epäonnistui: HTTP 503 (palvelu ei saatavilla); yritys 3/3; InternalServerError");
+  assert.equal(api.logMessage({ diagnostic: { kind: "async_resource", cause: "unclosed_client_session" } }),
+    "HTTP-asiakasresurssi jäi sulkematta: asiakasistunto");
+  assert.equal(api.logMessage({ diagnostic: { kind: "async_resource", cause: "unclosed_connector" } }),
+    "HTTP-asiakasresurssi jäi sulkematta: yhteyspooli");
   assert.equal(api.logMessage({ diagnostic: { kind: "vision", cause: "broken_pipe", errno: 32 } }),
     "Kuvan analysointi epäonnistui: katkennut tiedonsiirtoputki (EPIPE); errno 32");
+  assert.equal(api.logMessage({ diagnostic: { kind: "vision", cause: "cancelled" } }),
+    "Kuvan analysointi epäonnistui: analyysipyyntö peruttiin");
+  assert.equal(api.logMessage({ diagnostic: { kind: "vision", cause: "unknown" } }),
+    "Kuvan analysointi epäonnistui: virhesyytä ei tunnistettu");
   assert.match(api.logMessage({ diagnostic: { kind: "api_request", cause: "rate_limit",
     http_status: 429, retries_exhausted: 3 } }), /HTTP 429.*käyttö- tai nopeusraja.*käytetty \(3\)/);
   assert.equal(api.logMessage({ message: "Useful fallback", diagnostic: { kind: "unrecognized" } }), "Useful fallback");
@@ -142,6 +154,12 @@ assert.doesNotMatch(appSource, /event\.(?:work_kind|execution_kind)/);
     error_type: "PRIVATE_EXCEPTION", attempt: 99999, max_attempts: 3 } }).includes("PRIVATE"), false);
   api.setLanguage("en");
   assert.equal(api.logMessage(apiError), "Model API request failed: HTTP 503 (service unavailable); attempt 3/3; InternalServerError");
+  assert.equal(api.logMessage({ diagnostic: { kind: "vision", cause: "cancelled" } }),
+    "Image analysis failed: request cancelled");
+  assert.equal(api.logMessage({ diagnostic: { kind: "async_resource", cause: "unclosed_client_session" } }),
+    "HTTP client cleanup incomplete: client session left unclosed");
+  assert.equal(api.logMessage({ diagnostic: { kind: "async_resource", cause: "unclosed_connector" } }),
+    "HTTP client cleanup incomplete: connection pool left unclosed");
   assert.match(api.logMessage({ diagnostic: { kind: "api_stream", cause: "service_unavailable", http_status: 503 } }),
     /stream failed before delivery: HTTP 503/);
 }

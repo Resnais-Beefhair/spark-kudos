@@ -28,6 +28,7 @@ from .diagnostics import (
 from .logs import collect_all_logs
 from .origins import collect_with_origins
 from .remote import RemoteCollector
+from .storage import scan_disk_usage_process
 
 log = logging.getLogger(__name__)
 
@@ -78,6 +79,9 @@ class LiveState:
         self._file_scan_cache: dict[str, tuple[float, dict[str, Any]]] = {}
         self._file_scan_locks: dict[str, asyncio.Lock] = {}
         self._file_scan_tasks: dict[str, asyncio.Task[dict[str, Any]]] = {}
+        self._usage_cache: dict[tuple[str, str, str], tuple[float, dict[str, Any]]] = {}
+        self._usage_tasks: dict[tuple[str, str, str], asyncio.Task[dict[str, Any]]] = {}
+        self._usage_semaphore = asyncio.Semaphore(1)
         self.revision = 0
 
     async def start(self) -> None:
@@ -149,7 +153,10 @@ class LiveState:
             specs.append(
                 CollectorSpec(
                     "logs",
-                    lambda: collect_all_logs(dict(self.settings.hermes_profile_log_dirs)),
+                    lambda: collect_all_logs(
+                        dict(self.settings.hermes_profile_log_dirs),
+                        show_details=self.settings.log_details_enabled,
+                    ),
                     max(8.0, self.settings.system_interval_s * 4),
                     3.0,
                 )
@@ -232,7 +239,14 @@ class LiveState:
             task.cancel()
         for task in self._file_scan_tasks.values():
             task.cancel()
-        await asyncio.gather(*self._tasks, *self._file_scan_tasks.values(), return_exceptions=True)
+        for task in self._usage_tasks.values():
+            task.cancel()
+        await asyncio.gather(
+            *self._tasks,
+            *self._file_scan_tasks.values(),
+            *self._usage_tasks.values(),
+            return_exceptions=True,
+        )
 
     async def _scheduler_loop(self) -> None:
         while True:
@@ -510,11 +524,38 @@ class LiveState:
             }
         return hosts
 
+    def _log_view(self, *, compact: bool = False) -> dict[str, Any]:
+        logs = self.data.get("logs", {})
+        revision = logs.get("revision", "")
+        if self.settings.log_details_enabled:
+            # Wake already-open clients even when source events are unchanged.
+            revision = f"owner-message-v1:{revision}"
+        if compact:
+            return {
+                "revision": revision,
+                "counts": logs.get("counts", {}),
+                "sources": logs.get("sources", []),
+            }
+        if not self.settings.log_details_enabled:
+            return logs
+        # The standard message is authoritative for older consumers too. Keep
+        # the collector's safe message intact for identity/correlation/cache use.
+        return logs | {
+            "revision": revision,
+            "records": [
+                row | {"message": row["original_message"]}
+                if isinstance(row.get("original_message"), str)
+                else row
+                for row in logs.get("records", [])
+            ],
+        }
+
     async def snapshot(self) -> dict[str, Any]:
         async with self._lock:
             return self.data.copy() | {
                 "revision": self.revision,
                 "hosts": self._hosts(),
+                "logs": self._log_view(),
                 "ui": self._ui_metadata(),
             }
 
@@ -524,14 +565,86 @@ class LiveState:
             payload = self.data.copy() | {"revision": self.revision}
             payload["hosts"] = self._hosts(compact=True)
             payload["ui"] = self._ui_metadata()
-            logs = self.data.get("logs", {})
-            payload["logs"] = {
-                "revision": logs.get("revision", ""),
-                "counts": logs.get("counts", {}),
-                "sources": logs.get("sources", []),
-            }
+            payload["logs"] = self._log_view(compact=True)
             payload["history"] = list(self._history)[-1:]
             return payload
+
+    async def disk_usage(self, mount: str, host: str | None = None) -> dict[str, Any]:
+        """Measure one configured, currently mounted volume, outside collectors.
+
+        At most one volume is traversed at once; concurrent callers share the
+        same owned task. A client disconnect cannot orphan a subprocess or
+        defeat single-flight. Cached values are fenced by host/device identity.
+        """
+        host = self.settings.local_host_id if host is None else host
+        remote = host != self.settings.local_host_id
+        async with self._lock:
+            if not remote:
+                system = self.data.get("system", {})
+            elif (
+                self.settings.remote_enabled
+                and host == self.settings.remote_host_id
+                and self.scheduler is not None
+            ):
+                system = self.scheduler.value(self._remote_collector_name) or {}
+            else:
+                raise ValueError("unknown host")
+            disk = next(
+                (
+                    row
+                    for row in system.get("disks", [])
+                    if row.get("mount") == mount and not row.get("is_remote")
+                ),
+                None,
+            )
+        if not disk or not isinstance(disk.get("source"), str) or not disk["source"]:
+            raise ValueError("unknown mount")
+        source = disk["source"]
+        if remote:
+            from .storage_remote import scan_remote_storage
+        else:
+            validate_mount_identity(mount, source)
+        key = (host, mount, source)
+        cached = self._usage_cache.get(key)
+        if cached:
+            age = time.monotonic() - cached[0]
+            ttl = 600
+            if age < ttl:
+                if remote:
+                    await scan_remote_storage(self.settings, mount, source, validate_only=True)
+                return cached[1].copy() | {"cached": True, "cache_age_seconds": round(age, 1)}
+
+        async def scan() -> dict[str, Any]:
+            async with self._usage_semaphore:
+                if remote:
+                    result = await scan_remote_storage(self.settings, mount, source)
+                else:
+                    root = validate_mount_identity(mount, source)
+                    result = await scan_disk_usage_process(root)
+                    validate_mount_identity(mount, source)
+                if result.get("complete") or result.get("entries"):
+                    # A bounded working set also covers removed/replaced volumes.
+                    if len(self._usage_cache) >= 32:
+                        del self._usage_cache[
+                            min(self._usage_cache, key=lambda k: self._usage_cache[k][0])
+                        ]
+                    self._usage_cache[key] = (time.monotonic(), result)
+                return result.copy() | {"cached": False, "cache_age_seconds": 0}
+
+        task = self._usage_tasks.get(key)
+        if task is None or task.done():
+            task = asyncio.create_task(scan())
+            self._usage_tasks[key] = task
+
+            def finished(done: asyncio.Task[dict[str, Any]]) -> None:
+                if self._usage_tasks.get(key) is done:
+                    del self._usage_tasks[key]
+                if not done.cancelled():
+                    # Retrieve detached-client failures without leaking paths.
+                    done.exception()
+
+            task.add_done_callback(finished)
+        return await asyncio.shield(task)
 
     async def largest_files(self, mount: str) -> dict[str, Any]:
         """Scan an allowlisted mounted filesystem on demand and cache the result."""

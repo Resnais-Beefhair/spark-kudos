@@ -20,6 +20,22 @@ import psutil
 p=pathlib.Path
 gpu_state_path=__GPU_STATE_PATH_LITERAL__
 model_url=__MODEL_URL_LITERAL__
+def mount_source(mount):
+    matches=[]
+    try:
+        with open('/proc/self/mountinfo', encoding='utf-8') as stream:
+            for line in stream:
+                left, sep, right=line.rstrip('\n').partition(' - ')
+                before, after=left.split(), right.split()
+                if sep and len(before) >= 5 and len(after) >= 2:
+                    point=re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1),8)), before[4])
+                    if point == mount:
+                        source=re.sub(r'\\([0-7]{3})', lambda m: chr(int(m.group(1),8)), after[1])
+                        matches.append(source)
+    except OSError:
+        return None
+    return matches[0] if len(matches) == 1 else None
+
 class NoRedirect(urllib.request.HTTPRedirectHandler):
     def redirect_request(self, req, fp, code, msg, headers, newurl):
         return None
@@ -73,6 +89,7 @@ def metric_value(text, metric, model_name=None):
     return None
 
 sampled=datetime.now(timezone.utc).isoformat()
+root_source=mount_source('/')
 model={'name':None,'context_length':None,'requests_running':None,'requests_waiting':None,
        'kv_cache_percent':None,'health':'unknown','sampled_at':sampled,
        '_prompt_tokens_total':None,'_generation_tokens_total':None,'_server_started':None}
@@ -147,7 +164,7 @@ if gpu_state_path:
 print(json.dumps(dict(host=socket.gethostname(),boot_id=boot,mono=time.monotonic(),
     wall=time.time(),cpu=cpu,cores=psutil.cpu_count(),uptime=time.time()-psutil.boot_time(),
     ram=dict(total=m.total,available=m.available),
-    disk=dict(total=d.total,used=d.used,free=d.free,percent=d.percent),net=net,guard=g,
+    disk=dict(total=d.total,used=d.used,free=d.free,percent=d.percent,source=root_source),net=net,guard=g,
     processes=processes,process_count=process_count,processes_truncated=process_count>process_limit,
     model=model)))
 """
@@ -512,11 +529,20 @@ class RemoteCollector:
         gb = 1024**3
         disks = []
         dt, df, du = (number(disk.get(k)) for k in ("total", "free", "used"))
+        disk_source = disk.get("source")
+        if (
+            not isinstance(disk_source, str)
+            or not disk_source
+            or len(disk_source) > 4096
+            or any(ord(char) < 32 or ord(char) == 127 for char in disk_source)
+        ):
+            disk_source = None
         if dt and df is not None and du is not None and df <= dt and du <= dt:
             disks = [
                 {
                     "label": "NVMe",
                     "mount": "/",
+                    "source": disk_source,
                     "is_remote": False,
                     "total_gb": dt / gb,
                     "free_gb": df / gb,

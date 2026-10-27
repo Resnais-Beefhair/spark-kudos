@@ -35,7 +35,7 @@ def test_release_versions_and_javascript_behavior_gates():
     assert len(re.findall(rf"[?]v={re.escape(version)}", html)) == 5
     for name in ("app.js", "telemetry.js", "i18n.js", "hosts.js"):
         subprocess.run(["node", "--check", str(ROOT / name)], check=True, capture_output=True)
-    for name in ("test_telemetry.cjs", "test_activity.cjs", "test_i18n.cjs"):
+    for name in ("test_telemetry.cjs", "test_activity.cjs", "test_i18n.cjs", "test_log_ack.cjs"):
         subprocess.run(["node", str(PROJECT_ROOT / "scripts" / name)], check=True)
 
 
@@ -74,10 +74,26 @@ def test_english_default_and_optional_sections():
         "KudosTelemetry.leaders",
         "generation_tokens_per_second",
         "refreshLogs",
-        "/api/disks/largest-files",
+        "/api/disks/usage",
         "mergeSnapshot",
         "historyPath",
         "KudosTelemetry.agentActivity",
         "ticket-activity",
     ):
         assert marker in js
+
+
+def test_work_cards_hide_missing_tasks_instead_of_placeholder_prose():
+    js = (ROOT / "app.js").read_text()
+    render = js[js.index("function renderWork()") : js.index("function path(")]
+    assert 't("work.taskUnavailable")' not in render
+    assert "row.task.hidden = !task" in render
+
+
+def test_disk_space_popup_uses_usage_but_legacy_api_remains_available():
+    js = (ROOT / "app.js").read_text()
+    server = (ROOT.parent / "app.py").read_text()
+    assert "/api/disks/usage" in js
+    assert "/api/disks/largest-files" not in js
+    assert "/api/disks/largest-files" in server
+    assert "renderDiskUsage" in js and 'data.size_basis !== "allocated"' in js

@@ -345,17 +345,27 @@
   function acknowledgeLogErrors() {
     const rows = logErrors();
     if (!rows.length) return;
-    const timestamp = rows.reduce(
-      (latest, x) =>
-        Date.parse(x.timestamp) > (Date.parse(latest) || 0)
-          ? String(x.timestamp)
-          : latest,
-      "",
-    );
-    const signatures = rows
-      .filter((x) => Date.parse(x.timestamp) === Date.parse(timestamp))
-      .map(logSignature);
-    const ids = rows.filter((x) => x.id != null).map((x) => String(x.id));
+    const previous = readLogAck(),
+      timestamp = rows.reduce(
+        (latest, x) => Date.parse(x.timestamp) > (Date.parse(latest) || 0)
+          ? String(x.timestamp) : latest,
+        previous?.timestamp || "",
+      ),
+      cutoff = Date.parse(timestamp),
+      peers = rows.filter((x) => Date.parse(x.timestamp) === cutoff),
+      sameCutoff = previous && Date.parse(previous.timestamp) === cutoff,
+      retained = (values) => Array.isArray(values)
+        ? values.filter((value) => typeof value === "string") : [],
+      // A bounded sample may rotate equal-time peers out and back in. Keep their
+      // acknowledgements, and never rewind the cursor when newer rows disappear.
+      signatures = [...new Set([
+        ...(sameCutoff ? retained(previous.signatures) : []),
+        ...peers.map(logSignature),
+      ])].slice(-4096),
+      ids = [...new Set([
+        ...(sameCutoff ? retained(previous.ids) : []),
+        ...peers.filter((x) => x.id != null).map((x) => String(x.id)),
+      ])].slice(-4096);
     try {
       localStorage.setItem(
         LOG_ACK_KEY,
@@ -655,10 +665,10 @@
         row.state,
         `${s.runtime || t("work.runtimeUnknown")}${s.work_kind === "cron" ? ` · ${t("work.cron")}` : ""} · ${status}`,
       );
-      setNodeText(
-        row.task,
-        clip(KudosTelemetry.taskLabel(s, t("work.taskUnavailable")), 105),
-      );
+      const task = KudosTelemetry.taskLabel(s);
+      setNodeText(row.task, task ? clip(task, 105) : "");
+      row.task.hidden = !task;
+      row.button.classList.toggle("no-task", !task);
       const model = s.execution_kind === "script" ? "" : String(s.model || "");
       setNodeText(row.model, model);
       row.model.hidden = !model;
@@ -666,7 +676,7 @@
       const origin = KudosTelemetry.originLabel(s.location, t("work.originUnavailable"));
       setNodeText(row.origin, origin);
       row.origin.title = origin;
-      row.task.title = KudosTelemetry.taskLabel(s);
+      row.task.title = task;
       const metaKey = [s.model, s.reasoning, s.service_tier, KudosI18n.language()].join("|");
       if (metaKey !== row.metaKey) {
         const tags = [el("span", "tag model", s.model || t("inspector.modelUnavailable"))];
@@ -1136,46 +1146,93 @@
     section.append(list);
     return section;
   }
-  async function loadLargestFiles(mount, section) {
-    try {
-      const response = await fetch(
-        `/api/disks/largest-files?${new URLSearchParams({ mount })}`,
-        { cache: "no-store" },
+  function renderDiskUsage(view) {
+    view.language = document.documentElement.lang;
+    const { section, data } = view;
+    section.replaceChildren(el("h3", "", t(data && !data.complete
+      ? "inspector.usagePartialTitle" : "inspector.usageTitle")));
+    section.append(el("p", "diagnostic-note", t("inspector.usageScope")));
+    const status = el("p", `diagnostic-note${view.error ? " error" : ""}`);
+    status.setAttribute("role", "status");
+    section.setAttribute("aria-busy", String(!data && !view.error));
+    if (view.error) {
+      status.textContent = t("inspector.usageFailed");
+      section.append(status);
+      const retry = el("button", "usage-retry", t("inspector.usageRetry"));
+      retry.type = "button";
+      retry.addEventListener("click", () => requestDiskUsage(view));
+      section.append(retry);
+      return;
+    }
+    if (!data) {
+      status.textContent = t("inspector.usageLoading");
+      section.append(status);
+      return;
+    }
+    const info = t("inspector.usageMeasured", {
+      shown: fmt(data.entries.length, { maximumFractionDigits: 0 }),
+      total: fmt(data.scanned_entries, { maximumFractionDigits: 0 }),
+      time: clock(data.sampled_at),
+    });
+    status.textContent = [
+      data.complete ? "" : t("inspector.usagePartial"), info,
+      data.cached ? t("inspector.fromCache") : "",
+    ].filter(Boolean).join(" · ");
+    section.append(status);
+    const list = el("ol", "file-list disk-usage-list");
+    [...data.entries].sort((a, b) => b.size_bytes - a.size_bytes || a.path.localeCompare(b.path)).forEach((entry) => {
+      const item = el("li"), path = el("span", "disk-usage-path");
+      item.dataset.kind = entry.kind;
+      path.append(
+        el("span", "disk-usage-name", entry.path + (entry.kind === "directory" ? "/" : "")),
+        el("small", "disk-usage-kind", t(entry.kind === "directory" ? "inspector.usageDirectory" : "inspector.usageFile")),
       );
+      item.append(path, el("b", "", bytes(entry.size_bytes)));
+      list.append(item);
+    });
+    if (!list.children.length)
+      list.append(el("li", "empty", t(data.complete ? "inspector.usageEmpty" : "inspector.usageNoResults")));
+    section.append(list);
+  }
+  async function requestDiskUsage(view) {
+    if (view.inFlight) return;
+    view.inFlight = true;
+    view.error = false;
+    view.data = null;
+    renderDiskUsage(view);
+    try {
+      const response = await fetch(`/api/disks/usage?${new URLSearchParams({ host: view.host, mount: view.mount })}`, { cache: "no-store", signal: AbortSignal.timeout(240000) });
       if (!response.ok) throw Error(response.status);
       const data = await response.json();
-      section.replaceChildren(el("h3", "", t("inspector.largestFiles")));
-      section.append(
-        el(
-          "p",
-          "diagnostic-note",
-          data.complete
-            ? t("inspector.largestFilesDone", { count: fmt(data.scanned_files, { maximumFractionDigits: 0 }), cache: data.cached ? t("inspector.fromCache") : `${fmt(data.duration_ms, { maximumFractionDigits: 0 })} ms` })
-            : t("inspector.partialFiles", { count: fmt(data.scanned_files, { maximumFractionDigits: 0 }) }),
-        ),
-      );
-      const list = el("ol", "file-list");
-      (data.files || []).forEach((file) => {
-        const li = el("li");
-        li.append(
-          el("span", "", file.path),
-          el("b", "", bytes(file.size_bytes)),
-        );
-        list.append(li);
-      });
-      if (!list.children.length)
-        list.append(el("li", "empty", t("inspector.filesNone")));
-      section.append(list);
+      if (data.scope !== "mount_children" || data.size_basis !== "allocated"
+          || typeof data.complete !== "boolean" || typeof data.cached !== "boolean"
+          || !Array.isArray(data.entries) || data.entries.length > 100
+          || !Number.isInteger(data.scanned_entries) || data.scanned_entries < data.entries.length
+          || !Number.isFinite(Date.parse(data.sampled_at))
+          || !Number.isFinite(data.cache_age_seconds) || data.cache_age_seconds < 0
+          || data.entries.some((entry) => !entry || !["directory", "file"].includes(entry.kind)
+            || typeof entry.path !== "string" || !entry.path || entry.path.length > 240
+            || /[\u0000-\u001f\u007f]/u.test(entry.path)
+            || !Number.isSafeInteger(entry.size_bytes) || entry.size_bytes < 0))
+        throw Error("invalid storage data");
+      view.data = data;
+      const ttl = 600000;
+      view.refreshAt = Date.now() + Math.max(1000, ttl - data.cache_age_seconds * 1000);
     } catch (_error) {
-      section.replaceChildren(
-        el("h3", "", t("inspector.largestFiles")),
-        el(
-          "p",
-          "diagnostic-note error",
-          t("inspector.fileSearchFailed")
-        ),
-      );
+      view.error = true;
     }
+    view.inFlight = false;
+    // A response for a closed/replaced volume must never paint a different one.
+    if (view.section.isConnected) renderDiskUsage(view);
+  }
+  function createDiskUsageView(host, mount, section = null) {
+    const view = { host, mount, section: section || el("section", "diagnostic-list wide disk-usage"), data: null, error: false };
+    view.section.classList.add("disk-usage");
+    requestDiskUsage(view);
+    return view;
+  }
+  function loadLargestFiles(mount, section) {
+    createDiskUsageView(ui.data.ui?.local_host_id || "local", mount, section);
   }
   function openInspector(spec, trigger) {
     ui.hostInspector = null;
@@ -1488,6 +1545,7 @@
           x.category,
           logSources(x).join(","),
           x.event_count,
+          x.original_message,
           JSON.stringify(x.diagnostic || null),
         ].join("|"),
       ),
@@ -2115,6 +2173,7 @@
     });
   }
   function openHostInspector(id, key, trigger, diskIndex) {
+    const previous = ui.hostInspector;
     const host = hostPayload(id);
     if (!host) return;
     const system = host.system || {},
@@ -2125,6 +2184,7 @@
       label = host.label || id,
       box = $("#inspector-content"),
       rows = [];
+    let diskUsage = null, diskMount = null, diskSource = null;
     let title = t("inspector.hostTitle"),
       kicker = `${label.toUpperCase()} · ${t("inspector.cached")}`,
       note = t("inspector.hostCachedNote");
@@ -2255,16 +2315,34 @@
         ),
       );
     } else if (key === "disk") {
-      const disk = (system.disks || []).filter((d) => !d.is_remote)[
-        Number(diskIndex)
-      ];
-      if (!disk) return;
+      const disks = (system.disks || []).filter((d) => !d.is_remote),
+        retaining = previous?.id === id && previous.key === "disk"
+          && String(previous.diskIndex) === String(diskIndex),
+        disk = retaining ? disks.find((d) => d.mount === previous.diskMount) : disks[Number(diskIndex)];
+      if (!disk) {
+        if (retaining) {
+          box.replaceChildren(el("p", "diagnostic-note error wide", t("inspector.usageFailed")));
+          ui.hostInspector = null;
+        }
+        return;
+      }
       title = disk.label || disk.mount || t("inspector.diskTitle");
+      kicker = `${label.toUpperCase()} · ${t("inspector.storage")}`;
+      note = t("inspector.usageNote");
+      diskMount = disk.mount;
+      diskSource = disk.source;
+      diskUsage = previous?.id === id && previous.key === "disk"
+          && previous.diskMount === diskMount && previous.diskSource === diskSource
+        ? previous.diskUsage : createDiskUsageView(id, diskMount);
+      if (diskUsage.data && !diskUsage.error && !diskUsage.inFlight && Date.now() >= diskUsage.refreshAt)
+        requestDiskUsage(diskUsage);
+      if (diskUsage.language !== document.documentElement.lang) renderDiskUsage(diskUsage);
       rows.push(
         metric(t("inspector.used"), pct(disk.use_percent)),
         metric(t("inspector.free"), gib(disk.free_gb)),
         metric(t("inspector.total"), gib(disk.total_gb)),
         metric(t("inspector.mount"), disk.mount || "–", true),
+        diskUsage.section,
       );
     }
     if (key === "cpu" || key === "ram") {
@@ -2292,25 +2370,7 @@
     }
     if (key === "network")
       note = t("inspector.networkProcessNote");
-    if (key === "disk")
-      rows.push(
-        processList(
-          t("inspector.processIoTitle"),
-          system.processes?.io == null ? null : KudosTelemetry.leaders(
-            (system.processes?.io || []).map((r) => ({
-              ...r,
-              io_bytes_sec:
-                num(r.read_bytes_sec) === null ||
-                num(r.write_bytes_sec) === null
-                  ? null
-                  : num(r.read_bytes_sec) + num(r.write_bytes_sec),
-            })),
-            "io_bytes_sec",
-          ),
-          (r) => safeRate(r.io_bytes_sec),
-          t("inspector.processIoNote"),
-        ),
-      );
+
     if (key === "thermal" || key === "power")
       note = t("inspector.deviceNote");
     if (key === "model") {
@@ -2340,8 +2400,11 @@
     }
     if (["cpu", "gpu", "processes", "ram"].includes(key))
       rows.unshift(hostHistory(host, key === "processes" ? "gpu" : key));
+    const focused = document.activeElement;
     box.replaceChildren(...rows, el("p", "diagnostic-note wide", note));
-    ui.hostInspector = { id, key, trigger, diskIndex };
+    if (box.contains(focused) && document.activeElement !== focused)
+      focused.focus({ preventScroll: true });
+    ui.hostInspector = { id, key, trigger, diskIndex, diskUsage, diskMount, diskSource };
     setText("#inspector-kicker", kicker);
     setText("#inspector-title", title);
     showDialog($("#inspector"), trigger);

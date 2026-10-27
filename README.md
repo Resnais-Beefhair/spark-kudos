@@ -23,6 +23,8 @@ framework, external CDN, cloud account or private source repository is required.
 - One local machine; optionally a second Spark through existing read-only SSH access.
 - Independently fresh host panels, 15-minute in-memory histories and resource drilldowns.
 - Configurable host labels, network interfaces, mounted volumes and systemd/HTTP services.
+- [Volume-space details](docs/STORAGE.md): largest directories/files, allocated sizes,
+  bounded on-demand scans and explicit partial results, not host-wide process I/O.
 - Optional model-server metrics and opt-in agent, cron, quota and privacy-filtered log adapters.
 - Independent [Claude subscription limits](docs/CLAUDE-QUOTA.md), using an existing local Claude Code login without changing it.
 - A real English/Finnish language switch, including dynamic dialogs and accessible labels.
@@ -38,6 +40,7 @@ second host or require any particular application. Every such integration is opt
 - Linux and Python 3.12 or later. Primary target: NVIDIA DGX Spark / GB10, ARM64.
   Ordinary Linux machines can run the base view, but are not the primary support target.
 - For a second host: `ssh`, an existing verified SSH route, and remote Python 3 + `psutil`.
+- For directory/file size details: GNU `du` (coreutils), locally and on a queried remote host.
 - For GPU readings: a configured, existing shared JSON telemetry producer. KUDOS reads
   its state; it does **not** poll NVML/`nvidia-smi`, install a GPU daemon, manage GPU clocks
   or take over a thermal guard. [GPU source contract](docs/GPU-TELEMETRY.md).
@@ -70,10 +73,10 @@ sisu-kudos
 ## Install a release package
 
 Download the wheel from [GitHub Releases](https://github.com/Resnais-Beefhair/spark-kudos/releases).
-The current release is 0.5.6. No PyPI package is published. From the download directory:
+The current public release is 0.5.18. No PyPI package is published. From the download directory:
 
 ```bash
-uv tool install ./sisu_kudos-0.5.6-py3-none-any.whl
+uv tool install ./sisu_kudos-0.5.18-py3-none-any.whl
 sisu-kudos --version
 sisu-kudos
 ```
