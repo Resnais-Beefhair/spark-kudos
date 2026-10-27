@@ -11,6 +11,7 @@ import argparse
 import json
 import mimetypes
 import threading
+from contextlib import suppress
 from datetime import UTC, datetime, timedelta
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -18,10 +19,13 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
+from qa_storage_browser import run_storage_checks
 
 from sisu_kudos import __version__
 from sisu_kudos.adapters import safe_agent_snapshot
 from sisu_kudos.app import CONTENT_SECURITY_POLICY
+from sisu_kudos.log_content import operator_message
+from sisu_kudos.log_diagnostics import diagnose
 
 WEB = Path(__file__).resolve().parents[1] / "src/sisu_kudos/web"
 
@@ -42,6 +46,9 @@ def fixture(
     conversation_only=False,
     session_status="running",
     log_diagnostics=False,
+    log_owner_details=False,
+    log_peer=None,
+    log_peer_instance=0,
 ):
     """Deliberate test fixtures; none of these numbers are real measurements."""
     now = datetime.now(UTC)
@@ -247,9 +254,11 @@ def fixture(
             "generated_at": stamp,
         },
         "logs": {
+            "revision": f"logs-{log_diagnostics}-{log_peer}-{log_peer_instance}",
             "records": [
                 {
-                    "id": f"synthetic-log-{i}",
+                    "id": f"synthetic-log-{i}"
+                    + (f"-{log_peer_instance}" if diagnostic["kind"] == "async_resource" else ""),
                     "timestamp": "2026-01-19T15:28:21+00:00",
                     "runtime": "hermes",
                     "agent": "Example worker",
@@ -258,13 +267,34 @@ def fixture(
                     "level": "ERROR",
                     "category": "operational",
                     "status": "recorded",
-                    "component": "agent.conversation_loop",
+                    "component": "asyncio"
+                    if diagnostic["kind"] == "async_resource"
+                    else "tools.vision_tools"
+                    if diagnostic["kind"] == "vision"
+                    else "agent.conversation_loop",
                     "message": "Safe structured diagnostic",
                     "diagnostic": diagnostic,
+                    **(
+                        {
+                            "diagnostic": None,
+                            "original_message": operator_message(
+                                "PreviouslyUnknownError: actual failure reason\n"
+                                "/example/owner/config.py\npassword=EXAMPLE_CREDENTIAL\n"
+                                "<img src=x onerror=window.ownerLogXss=true>"
+                            ),
+                        }
+                        if log_owner_details and i == 7
+                        else {}
+                    ),
                 }
                 for i, diagnostic in enumerate(
                     [
                         {"kind": "vision", "cause": "broken_pipe", "errno": 32},
+                        {"kind": "vision", "cause": "cancelled"},
+                        {"kind": "vision", "cause": "unknown"},
+                        {"kind": "vision", "cause": "service_unavailable", "http_status": 503},
+                        {"kind": "async_resource", "cause": "unclosed_client_session"},
+                        {"kind": "async_resource", "cause": "unclosed_connector"},
                         {
                             "kind": "api_request",
                             "cause": "service_unavailable",
@@ -273,22 +303,66 @@ def fixture(
                             "max_attempts": 3,
                             "error_type": "InternalServerError",
                         },
-                        {
-                            "kind": "api_request",
-                            "cause": "rate_limit",
-                            "http_status": 429,
-                            "retries_exhausted": 3,
-                        },
+                        diagnose(
+                            "agent.conversation_loop",
+                            "[subagent-0] API call failed after 3 retries. "
+                            "HTTP 429: synthetic withheld detail",
+                            "ERROR",
+                        ),
                     ]
                 )
+                if not log_peer
+                or diagnostic["kind"] != "async_resource"
+                or diagnostic["cause"] == log_peer
             ]
             if log_diagnostics
             else [],
-            "counts": {"ERROR": 3} if log_diagnostics else {},
+            "counts": {"ERROR": 7 if log_peer else 8} if log_diagnostics else {},
             "sources": [{"name": "errors", "available": True}],
         },
         "events": [],
     }
+
+
+def measure_work_layout(page):
+    return page.locator("#work-list").evaluate("""list => {
+      const cards = [...list.querySelectorAll('.ticket')];
+      const rects = cards.map(card => card.getBoundingClientRect());
+      let overlaps = 0;
+      for (const card of cards) {
+        const boxes = [...card.querySelectorAll(
+          '.agent-id strong,.agent-id small,.task,.ticket-origin,' +
+          '.ticket-model,.ticket-start,.ticket-activity'
+        )].map(n => n.getBoundingClientRect()).filter(b => b.width > 0);
+        for (let i = 0; i < boxes.length; i++) {
+          for (let j = i + 1; j < boxes.length; j++) {
+            const a = boxes[i], b = boxes[j];
+            if (a.left < b.right - 1 && b.left < a.right - 1 &&
+                a.top < b.bottom - 1 && b.top < a.bottom - 1) overlaps++;
+          }
+        }
+      }
+      return {
+        count: cards.length,
+        overlaps,
+        height: Math.max(...rects.map(r => r.height)),
+        listWidth: list.getBoundingClientRect().width,
+        listClientWidth: list.clientWidth,
+        listScrollWidth: list.scrollWidth,
+        containerOverflow: list.scrollWidth - list.clientWidth,
+        cardWidths: rects.map(r => r.width),
+        rows: new Set(rects.map(r => Math.round(r.top))).size,
+        hiddenMeta: cards.every(c =>
+          getComputedStyle(c.querySelector('.ticket-meta')).display === 'none'),
+        activity: cards.every(c => c.querySelector('.ticket-activity svg') &&
+          c.querySelector('.ticket-activity').title.length > 0),
+        modelWidths: cards.map(c =>
+          c.querySelector('.ticket-model').getBoundingClientRect().width),
+        glyphWidths: cards.map(c => c.querySelector('.ticket-activity svg')
+          .getBoundingClientRect().width),
+        overflow: document.documentElement.scrollWidth - innerWidth
+      };
+    }""")
 
 
 def run(output):
@@ -343,7 +417,9 @@ def run(output):
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Content-Security-Policy", CONTENT_SECURITY_POLICY)
             self.end_headers()
-            self.wfile.write(data)
+            # The owned test browser can close an in-flight fixture request.
+            with suppress(BrokenPipeError, ConnectionResetError):
+                self.wfile.write(data)
 
     server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
     server.daemon_threads = True
@@ -422,6 +498,7 @@ def run(output):
                 page.locator("#inspector [data-close]").click()
                 expect(trigger).to_be_focused()
                 checks.append("arbitrary dual-host IDs; remote details; dialog/focus survive SSE")
+                storage_layout = run_storage_checks(page, checks, output, errors)
                 page.locator("#work-list .ticket").first.click()
                 expect(page.locator("#inspector-content")).to_contain_text("example-model")
                 expect(page.locator("#inspector-content")).to_contain_text("Päättely")
@@ -469,20 +546,47 @@ def run(output):
                     "enlarged motion/pause/reload/reduced motion"
                 )
                 page.locator("#language-select").select_option("en")
+                ticket.evaluate(
+                    "n => { window.qaTaskTicket = n; "
+                    "window.qaTaskGlyph = n.querySelector('svg'); }"
+                )
                 options.update(conversation_only=True)
                 for language, unavailable, context_label in (
                     ("en", "Task name not available", "Conversation title"),
                     ("fi", "Tehtävän nimeä ei saatavilla", "Keskustelun otsikko"),
                 ):
                     page.locator("#language-select").select_option(language)
-                    expect(ticket.locator(".task")).to_have_text(unavailable)
+                    expect(ticket.locator(".task")).to_be_hidden()
+                    expect(ticket.locator(".task")).to_have_text("")
+                    expect(ticket).not_to_contain_text(unavailable)
                     expect(ticket).not_to_contain_text("Historical conversation topic")
+                    for width in (1440, 390):
+                        page.set_viewport_size({"width": width, "height": 1080})
+                        expect(ticket.locator(".ticket-origin")).to_be_visible()
+                        assert ticket.evaluate("n => n.scrollWidth <= n.clientWidth + 1")
+                        assert ticket.locator(".ticket-origin").evaluate(
+                            "n => n.getBoundingClientRect().width > "
+                            "n.parentElement.getBoundingClientRect().width * 0.95"
+                        )
+                        assert ticket.bounding_box()["height"] <= 61
+                    expect(ticket.locator(".task")).to_be_hidden()
                     ticket.click()
                     expect(page.locator("#inspector-content")).to_contain_text(context_label)
                     expect(page.locator("#inspector-content")).to_contain_text(
                         "Historical conversation topic"
                     )
                     page.locator("#inspector [data-close]").click()
+                options.update(conversation_only=False)
+                expect(ticket.locator(".task")).to_be_visible()
+                expect(ticket.locator(".task")).to_have_text("Model <preview> & analysis")
+                assert ticket.evaluate(
+                    "n => n === window.qaTaskTicket && "
+                    "n.querySelector('svg') === window.qaTaskGlyph"
+                )
+                checks.append(
+                    "missing task omitted; full-width origin; "
+                    "live restoration, EN/FI desktop/mobile"
+                )
                 options.update(session_status="idle")
                 expect(page.locator("#work-list .ticket")).to_have_count(0)
                 options.update(session_status="running", conversation_only=False)
@@ -508,7 +612,7 @@ def run(output):
                     page.locator("#inspector [data-close]").click()
                 checks.append("missing quota: localized card and inspector in English and Finnish")
                 options.update(log_diagnostics=True)
-                expect(page.locator("#log-badge")).to_have_text("3")
+                expect(page.locator("#log-badge")).to_have_text("8")
                 for width in (1440, 390):
                     page.set_viewport_size({"width": width, "height": 1080})
                     for language in ("en", "fi"):
@@ -518,10 +622,30 @@ def run(output):
                         page.get_by_role(
                             "button", name="Errors" if language == "en" else "Virheet", exact=True
                         ).click()
-                        expect(page.locator("#log-list li")).to_have_count(3)
+                        expect(page.locator("#log-list li")).to_have_count(8)
                         expect(page.locator("#log-list")).to_contain_text("HTTP 503")
                         expect(page.locator("#log-list")).to_contain_text("HTTP 429")
                         expect(page.locator("#log-list")).to_contain_text("errno 32")
+                        expect(page.locator("#log-list")).to_contain_text(
+                            "Kuvan analysointi epäonnistui: analyysipyyntö peruttiin"
+                            if language == "fi"
+                            else "Image analysis failed: request cancelled"
+                        )
+                        expect(page.locator("#log-list")).to_contain_text(
+                            "Kuvan analysointi epäonnistui: virhesyytä ei tunnistettu"
+                            if language == "fi"
+                            else "Image analysis failed: cause not classified"
+                        )
+                        expect(page.locator("#log-list")).to_contain_text(
+                            "HTTP-asiakasresurssi jäi sulkematta: asiakasistunto"
+                            if language == "fi"
+                            else "HTTP client cleanup incomplete: client session left unclosed"
+                        )
+                        expect(page.locator("#log-list")).to_contain_text(
+                            "HTTP-asiakasresurssi jäi sulkematta: yhteyspooli"
+                            if language == "fi"
+                            else "HTTP client cleanup incomplete: connection pool left unclosed"
+                        )
                         expect(page.locator("#log-list")).to_contain_text(
                             "yritys 3/3" if language == "fi" else "attempt 3/3"
                         )
@@ -542,7 +666,60 @@ def run(output):
                 checks.append(
                     "typed log causes, HTTP/retries/errno, Errors filter, EN/FI, desktop/mobile"
                 )
-                options.update(log_diagnostics=False)
+                options.update(log_owner_details=True)
+                for width in (1440, 390):
+                    page.set_viewport_size({"width": width, "height": 1080})
+                    for language in ("en", "fi"):
+                        page.locator("#language-select").select_option(language)
+                        page.locator("#logs-button").click()
+                        owner = page.locator('#log-list li[data-incident-id="synthetic-log-7"]')
+                        expect(owner).to_contain_text(
+                            "PreviouslyUnknownError: actual failure reason"
+                        )
+                        expect(owner).to_contain_text("/example/owner/config.py")
+                        expect(owner).not_to_contain_text("EXAMPLE_CREDENTIAL")
+                        expect(owner.locator("img")).to_have_count(0)
+                        assert not page.evaluate("Boolean(window.ownerLogXss)")
+                        # Log rows can refresh between animation frames; scroll the
+                        # current node atomically rather than pinning an element handle.
+                        owner.evaluate("n => n.scrollIntoView({block: 'nearest'})")
+                        assert page.locator("#logs-dialog").evaluate(
+                            "n => n.scrollWidth <= n.clientWidth + 1"
+                        )
+                        page.locator("#logs-dialog").screenshot(
+                            path=str(output / f"owner-logs-{width}-{language}.png")
+                        )
+                        page.locator("#logs-dialog [data-close]").click()
+                checks.append(
+                    "owner unknown error/traceback, credentials masked, HTML literal, "
+                    "EN/FI, desktop/mobile"
+                )
+                options.update(log_owner_details=False, log_diagnostics=False)
+                page.evaluate("localStorage.removeItem('sisu-kudos.log-error-ack.v2')")
+                options.update(log_diagnostics=True, log_peer="unclosed_client_session")
+                page.locator("#logs-button").click()
+                expect(page.locator("#log-list li")).to_have_count(7)
+                page.locator("#acknowledge-errors").click()
+                expect(page.locator("#acknowledge-errors")).to_be_disabled()
+                options.update(log_peer="unclosed_connector")
+                expect(page.locator("#log-list")).to_contain_text("yhteyspooli")
+                expect(page.locator("#acknowledge-errors")).to_be_enabled()
+                page.locator("#acknowledge-errors").click()
+                options.update(log_peer="unclosed_client_session")
+                expect(page.locator("#log-list")).to_contain_text("asiakasistunto")
+                expect(page.locator("#log-list")).not_to_contain_text("yhteyspooli")
+                expect(page.locator("#acknowledge-errors")).to_be_disabled()
+                page.reload()
+                page.locator("#logs-button").click()
+                expect(page.locator("#log-list")).to_contain_text("asiakasistunto")
+                expect(page.locator("#acknowledge-errors")).to_be_disabled()
+                options.update(log_peer_instance=1)
+                expect(page.locator("#acknowledge-errors")).to_be_enabled()
+                page.locator("#logs-dialog [data-close]").click()
+                options.update(log_diagnostics=False, log_peer=None, log_peer_instance=0)
+                checks.append(
+                    "ACK survives rotating same-time peers/reload; genuinely new errors still alert"
+                )
                 page.set_viewport_size({"width": 1920, "height": 1080})
                 page.locator("#language-select").select_option("en")
                 options.update(empty_disks=True)
@@ -581,48 +758,85 @@ def run(output):
                 checks.append(
                     "Claude rate-limit stale retention, login-required and recovery in EN/FI"
                 )
+                for session_count in (1, 2):
+                    options.update(session_count=session_count)
+                    expect(page.locator("#work-list .ticket")).to_have_count(session_count)
+                    for language in ("en", "fi"):
+                        page.locator("#language-select").select_option(language)
+                        for width in (1920, 1024, 390):
+                            page.set_viewport_size({"width": width, "height": 1080})
+                            layout = measure_work_layout(page)
+                            assert layout["count"] == session_count, (language, width, layout)
+                            assert layout["overlaps"] == 0, (language, width, layout)
+                            assert layout["overflow"] <= 1, (language, width, layout)
+                            assert layout["containerOverflow"] <= 1, (language, width, layout)
+                            expected_height = (76, 80) if width < 760 else (58, 62)
+                            assert expected_height[0] <= layout["height"] <= expected_height[1], (
+                                language,
+                                width,
+                                layout,
+                            )
+                            if width < 760:
+                                assert all(
+                                    abs(card_width - layout["listWidth"]) <= 1
+                                    for card_width in layout["cardWidths"]
+                                ), (language, width, layout)
+                            else:
+                                assert all(
+                                    300 <= card_width <= 620 for card_width in layout["cardWidths"]
+                                ), (language, width, layout)
+                                if session_count == 1 and layout["listWidth"] >= 600:
+                                    assert all(
+                                        560 <= card_width <= 620
+                                        for card_width in layout["cardWidths"]
+                                    ), (language, width, layout)
+                            if width == 1920:
+                                page.screenshot(
+                                    path=str(
+                                        output / f"work-cards-{session_count}-{language}-1920.png"
+                                    ),
+                                    full_page=True,
+                                )
+                            work_layout.append(
+                                {
+                                    "session_count": session_count,
+                                    "language": language,
+                                    "viewport": width,
+                                    **layout,
+                                }
+                            )
+                checks.append(
+                    "one/two work cards: bounded desktop widths, full mobile width, "
+                    "60/78px heights and no overlap/overflow in EN/FI"
+                )
                 options.update(session_count=5)
                 expect(page.locator("#work-list .ticket")).to_have_count(5)
                 for language in ("en", "fi"):
                     page.locator("#language-select").select_option(language)
                     for width in (1920, 1440, 1366, 1024, 768, 390):
                         page.set_viewport_size({"width": width, "height": 1080})
-                        layout = page.locator("#work-list").evaluate("""list => {
-                          const cards = [...list.querySelectorAll('.ticket')];
-                          let overlaps = 0;
-                          for (const card of cards) {
-                            const boxes = [...card.querySelectorAll(
-                              '.agent-id strong,.agent-id small,.task,.ticket-origin,' +
-                              '.ticket-model,.ticket-start,.ticket-activity'
-                            )].map(n => n.getBoundingClientRect()).filter(b => b.width > 0);
-                            for (let i = 0; i < boxes.length; i++) {
-                              for (let j = i + 1; j < boxes.length; j++) {
-                                const a = boxes[i], b = boxes[j];
-                                if (a.left < b.right - 1 && b.left < a.right - 1 &&
-                                    a.top < b.bottom - 1 && b.top < a.bottom - 1) overlaps++;
-                              }
-                            }
-                          }
-                          return {
-                            count: cards.length,
-                            overlaps,
-                            height: Math.max(...cards.map(c => c.getBoundingClientRect().height)),
-                            hiddenMeta: cards.every(c =>
-                              getComputedStyle(c.querySelector('.ticket-meta')).display === 'none'),
-                            activity: cards.every(c => c.querySelector('.ticket-activity svg') &&
-                              c.querySelector('.ticket-activity').title.length > 0),
-                            modelWidths: cards.map(c =>
-                              c.querySelector('.ticket-model').getBoundingClientRect().width),
-                            glyphWidths: cards.map(c => c.querySelector('.ticket-activity svg')
-                              .getBoundingClientRect().width),
-                            overflow: document.documentElement.scrollWidth - innerWidth
-                          };
-                        }""")
+                        layout = measure_work_layout(page)
                         assert layout["count"] == 5, layout
                         assert layout["overlaps"] == 0, (language, width, layout)
                         assert layout["overflow"] <= 1, (language, width, layout)
+                        assert layout["containerOverflow"] <= 1, (language, width, layout)
                         assert 44 <= layout["height"] <= (84 if width < 760 else 62), layout
                         assert layout["hiddenMeta"] and layout["activity"], layout
+                        assert all(
+                            (300 if width >= 760 else 0) <= w <= 620 for w in layout["cardWidths"]
+                        ), (
+                            language,
+                            width,
+                            layout,
+                        )
+                        if width < 760:
+                            assert all(
+                                abs(w - layout["listWidth"]) <= 1 for w in layout["cardWidths"]
+                            ), (language, width, layout)
+                        if width == 1920:
+                            assert layout["rows"] == 1, (language, width, layout)
+                        else:
+                            assert layout["rows"] >= 2, (language, width, layout)
                         assert all(
                             w >= 24 for i, w in enumerate(layout["modelWidths"]) if i != 2
                         ), layout
@@ -717,6 +931,7 @@ def run(output):
                     "checks": checks,
                     "capacity_layout": capacity_layout,
                     "work_layout": work_layout,
+                    "storage_layout": storage_layout,
                     "page_errors": errors,
                     "request_failures": failures,
                 }

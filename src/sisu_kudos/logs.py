@@ -15,6 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from .log_content import operator_message
 from .log_diagnostics import diagnose, diagnostic_message
 from .log_events import (
     classify,
@@ -94,7 +95,12 @@ def redact_message(value: str, limit: int = 320) -> str:
 
 
 def parse_log_line(
-    line: str, source: str, agent: str = "default", *, profile: str | None = None
+    line: str,
+    source: str,
+    agent: str = "default",
+    *,
+    profile: str | None = None,
+    show_details: bool = False,
 ) -> dict[str, Any] | None:
     match = _LINE_RE.match(line)
     if not match:
@@ -132,35 +138,62 @@ def parse_log_line(
     diagnostic = diagnose(raw_component, raw_message, level)
     if diagnostic is not None:
         record.update(diagnostic=diagnostic, message=diagnostic_message(diagnostic))
+    if show_details is True:
+        record["original_message"] = operator_message(raw_message)
     return record
 
 
 def _parse_log_blocks(
-    lines: list[str], source: str, agent: str, profile: str
+    lines: list[str],
+    source: str,
+    agent: str,
+    profile: str,
+    *,
+    show_details: bool = False,
 ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     current = None
+    raw_header = ""
     continuation: list[str] = []
+    operator_lines: list[str] = []
+
+    def finish() -> None:
+        if current is not None:
+            classify_proxy_eof(current, continuation)
+            if show_details is True:
+                # Input is bounded by _tail_lines; scrub the complete block
+                # before shortening, retaining the final exception and keeping
+                # begin/end markers of long private-key blocks together.
+                current["original_message"] = operator_message(
+                    "\n".join([raw_header, *operator_lines])
+                )
+            records.append(current)
+
     for line in lines:
         # Any structured start terminates the traceback, even if malformed.
         if re.match(r"^\d{4}-\d{2}-\d{2}[ T]", line):
-            if current is not None:
-                classify_proxy_eof(current, continuation)
-                records.append(current)
-            current = parse_log_line(line, source, agent, profile=profile)
+            finish()
+            current = parse_log_line(
+                line, source, agent, profile=profile, show_details=show_details
+            )
+            match = _LINE_RE.match(line)
+            raw_header = match["message"] if match else ""
             continuation = []
+            operator_lines = []
         elif current is not None:
+            if show_details is True:
+                operator_lines.append(line)
             if len(continuation) < 120:
                 continuation.append(line)
             elif len(continuation) == 120:
                 continuation.append("TRACE_TRUNCATED")
-    if current is not None:
-        classify_proxy_eof(current, continuation)
-        records.append(current)
+    finish()
     return records
 
 
-def collect_hermes_logs(log_dirs: Path | Mapping[str, Path], limit: int = 160) -> dict[str, Any]:
+def collect_hermes_logs(
+    log_dirs: Path | Mapping[str, Path], limit: int = 160, *, show_details: bool = False
+) -> dict[str, Any]:
     """Collect balanced recent records from explicitly allowed Hermes profile logs."""
     profiles = {"default": log_dirs} if isinstance(log_dirs, Path) else dict(log_dirs)
     per_stream_limit = max(1, min(limit, 100, 300 // max(1, len(profiles) * len(LOG_FILES))))
@@ -178,7 +211,11 @@ def collect_hermes_logs(log_dirs: Path | Mapping[str, Path], limit: int = 160) -
             sources.append({"name": source, "agent": agent, "available": exists})
             if not exists:
                 continue
-            records.extend(_parse_log_blocks(_tail_lines(path), source, agent, profile))
+            records.extend(
+                _parse_log_blocks(
+                    _tail_lines(path), source, agent, profile, show_details=show_details
+                )
+            )
     # Correlate BEFORE display sampling, so busy INFO streams cannot hide recovery.
     records = correlate(records, live_recoveries(profiles))
     selected: list[dict[str, Any]] = []
@@ -339,7 +376,9 @@ def _openclaw_summary(message: str, level: str) -> str:
     return "Gateway operational event"
 
 
-def _openclaw_record(entry: Mapping[str, Any]) -> dict[str, Any] | None:
+def _openclaw_record(
+    entry: Mapping[str, Any], *, show_details: bool = False
+) -> dict[str, Any] | None:
     unit = entry.get("_SYSTEMD_USER_UNIT") or entry.get("_SYSTEMD_UNIT")
     if unit != _OPENCLAW_UNIT:
         return None
@@ -350,7 +389,7 @@ def _openclaw_record(entry: Mapping[str, Any]) -> dict[str, Any] | None:
     if not isinstance(message, str) or not message or timestamp is None or level is None:
         return None
     level = _openclaw_level(message, level)
-    return {
+    record = {
         "id": identity("openclaw", timestamp, entry.get("_CURSOR"), level, message),
         "timestamp": timestamp,
         "runtime": "openclaw",
@@ -363,6 +402,9 @@ def _openclaw_record(entry: Mapping[str, Any]) -> dict[str, Any] | None:
         "category": "operational",
         "status": "recorded",
     }
+    if show_details is True:
+        record["original_message"] = operator_message(message)
+    return record
 
 
 def _openclaw_status_row(message: str, level: str = "ERROR") -> dict[str, Any]:
@@ -398,9 +440,13 @@ def _log_counts(records: list[dict[str, Any]]) -> dict[str, int]:
     }
 
 
-def _cached_openclaw_rows() -> list[dict[str, Any]]:
+def _cached_openclaw_rows(*, show_details: bool = False) -> list[dict[str, Any]]:
     with _OPENCLAW_CACHE_LOCK:
-        return [dict(row) for row in _OPENCLAW_LAST_GOOD]
+        records = [dict(row) for row in _OPENCLAW_LAST_GOOD]
+    if show_details is not True:
+        for row in records:
+            row.pop("original_message", None)
+    return records
 
 
 def _remember_openclaw_rows(records: list[dict[str, Any]]) -> None:
@@ -408,7 +454,7 @@ def _remember_openclaw_rows(records: list[dict[str, Any]]) -> None:
         _OPENCLAW_LAST_GOOD[:] = [dict(row) for row in records[:300]]
 
 
-def collect_openclaw_logs(limit: int = 160) -> dict[str, Any]:
+def collect_openclaw_logs(limit: int = 160, *, show_details: bool = False) -> dict[str, Any]:
     """Collect bounded OpenClaw gateway records from the user journal.
 
     Journal messages are used only to derive a safe fixed summary and an
@@ -431,7 +477,7 @@ def collect_openclaw_logs(limit: int = 160) -> dict[str, Any]:
             check=False,
         )
     except (OSError, subprocess.SubprocessError):
-        records = _cached_openclaw_rows()[: max(0, limit - 1)]
+        records = _cached_openclaw_rows(show_details=show_details)[: max(0, limit - 1)]
         records.append(
             _openclaw_status_row("OpenClaw journal unavailable; last known records retained")
         )
@@ -444,7 +490,7 @@ def collect_openclaw_logs(limit: int = 160) -> dict[str, Any]:
         }
 
     if result.returncode != 0:
-        records = _cached_openclaw_rows()[: max(0, limit - 1)]
+        records = _cached_openclaw_rows(show_details=show_details)[: max(0, limit - 1)]
         records.append(
             _openclaw_status_row("OpenClaw journal unavailable; last known records retained")
         )
@@ -497,7 +543,7 @@ def collect_openclaw_logs(limit: int = 160) -> dict[str, Any]:
         if key in seen:
             continue
         seen.add(key)
-        record = _openclaw_record(entry)
+        record = _openclaw_record(entry, show_details=show_details)
         if record is None:
             unsupported += 1
             continue
@@ -507,7 +553,7 @@ def collect_openclaw_logs(limit: int = 160) -> dict[str, Any]:
     failed_schema = not records and bool(parsed_entries or malformed or unsupported)
     if failed_schema:
         source["available"] = False
-        records = _cached_openclaw_rows()[: max(0, limit - 1)]
+        records = _cached_openclaw_rows(show_details=show_details)[: max(0, limit - 1)]
         records.append(
             _openclaw_status_row("OpenClaw journal schema invalid; last known records retained")
         )
@@ -570,11 +616,14 @@ def _balanced_recent_records(records: list[dict[str, Any]], limit: int) -> list[
     return selected
 
 
-def collect_all_logs(log_dirs: Path | Mapping[str, Path], limit: int = 160) -> dict[str, Any]:
+def collect_all_logs(
+    log_dirs: Path | Mapping[str, Path], limit: int = 160, *, show_details: bool = False
+) -> dict[str, Any]:
     """Combine balanced Hermes and OpenClaw logs under one bounded contract."""
     limit = max(1, min(int(limit), 300))
-    hermes = collect_hermes_logs(log_dirs, limit=limit)
-    openclaw = collect_openclaw_logs(limit=limit)
+    options = {"show_details": True} if show_details is True else {}
+    hermes = collect_hermes_logs(log_dirs, limit=limit, **options)
+    openclaw = collect_openclaw_logs(limit=limit, **options)
 
     records: list[dict[str, Any]] = []
     for row in hermes.get("records", []):

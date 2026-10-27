@@ -99,7 +99,7 @@ All flags default to `false` and must be actual TOML booleans, not strings:
 - `agents`: opt into sessions through the optional trusted local Agenttimonitori adapter.
 - `quotas`: opt into ChatGPT quota telemetry through the same optional adapter.
 - `claude_quota`: independently opt into [Claude subscription limits](CLAUDE-QUOTA.md) using an existing local Claude Code login; no Agenttimonitori dependency.
-- `logs`: structured privacy-filtered Hermes/OpenClaw logs; arbitrary prose is not served.
+- `logs`: structured privacy-filtered Hermes/OpenClaw logs by default; owner-authorized original content is separately opt-in below.
 - `crons`: read-only running-execution metadata; not a scheduler or job editor.
 - `resources`: an explicitly configured local resource registry snapshot.
 
@@ -124,7 +124,29 @@ Legacy Python repository paths execute trusted local Python. They are not an
 untrusted plugin sandbox. These compatibility adapters intentionally make no
 promise of supporting arbitrary future upstream versions.
 
-## `[[logs.hermes_profiles]]` (repeatable)
+## `[logs]` and `[[logs.hermes_profiles]]`
+
+`show_details` defaults to `false` and must be a real boolean. On a trusted
+owner-only dashboard, `show_details = true` includes original messages and bounded
+tracebacks, even for unknown error formats. Recognized credentials (keys,
+passwords, authorization/cookie headers and URL credentials/signatures) remain
+masked. Other content, including paths, identities, prompts, tool text and
+provider responses, is deliberately preserved and rendered as plain text.
+In this mode, both the standard API `message` and `original_message` contain the
+credential-filtered original text, including for older clients. A display-mode
+revision tells already-open clients to refresh their log records without changing
+event IDs or acknowledgement state. Compact live updates contain only log metadata.
+Credential filtering is best effort, not a guarantee that arbitrary logs are safe
+to share. Do not enable this on an untrusted or public listener. API responses use
+`Cache-Control: no-store` in this mode. Log identity, severity, incident status and
+browser acknowledgements do not change when details are enabled.
+
+```toml
+[logs]
+show_details = true # owner-only; omit this or use false for the safe summary
+```
+
+### Explicit profile roster (repeatable)
 
 Optional explicit roster of `{label, path}` where `path` is a profile's **log
 directory**. Labels must be unique. Without a roster, enabled logs/crons use a single

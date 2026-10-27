@@ -15,12 +15,16 @@ noninteractive authentication; KUDOS never creates keys or disables host checkin
 
 ## Data boundaries
 
-The API uses explicit bounded projections, not raw agent/session/database objects.
-Prompts, command lines, tool payloads, raw exception prose and tracebacks must never
-be added to browser telemetry. A field being readable on disk does not make it safe
-for a browser. Private paths/identifiers may still be visible in deliberately opened
-filesystem drilldowns and operator-provided labels: treat the whole dashboard as
-private, even when logs have been sanitized.
+The default API uses explicit bounded projections, not raw agent/session/database
+objects. It does not expose arbitrary log prose, prompts or tracebacks. An owner
+may explicitly enable `[logs] show_details = true` on a trusted private dashboard
+to see original log messages and bounded tracebacks. This mode preserves paths,
+identities, prompt/tool text and provider content while masking recognized
+credentials. Filtering is best effort, not a guarantee that arbitrary logs are
+shareable. It does not add authentication or change who can reach the listener.
+API responses are marked `no-store`; source configuration is never served.
+Private paths/identifiers may also be visible in deliberately opened filesystem
+drilldowns and operator-provided labels. Treat the whole dashboard as private.
 
 Only explicitly configured mounts may be scanned. Mount identity is revalidated;
 scans are bounded and do not cross filesystems. Source configuration itself is never

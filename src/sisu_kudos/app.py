@@ -63,6 +63,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         response.headers["Referrer-Policy"] = "no-referrer"
         response.headers["X-Frame-Options"] = "DENY"
         response.headers["Content-Security-Policy"] = CONTENT_SECURITY_POLICY
+        if configured_settings(request.app).log_details_enabled and request.url.path.startswith(
+            "/api/"
+        ):
+            response.headers["Cache-Control"] = "no-store"
         return response
 
     @instance.get("/")
@@ -105,6 +109,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def logs(request: Request) -> JSONResponse:
         payload = await request.app.state.kudos_state.snapshot()
         return JSONResponse(payload.get("logs", {}))
+
+    @instance.get("/api/disks/usage")
+    async def disk_usage(request: Request, mount: str, host: str | None = None) -> JSONResponse:
+        try:
+            payload = await request.app.state.kudos_state.disk_usage(mount, host)
+            return JSONResponse(payload, headers={"Cache-Control": "no-store"})
+        except ValueError as exc:
+            raise HTTPException(404, "unknown or changed volume") from exc
+        except (OSError, RuntimeError, TimeoutError) as exc:
+            raise HTTPException(503, "storage scan is unavailable") from exc
 
     @instance.get("/api/disks/largest-files")
     async def largest_files(request: Request, mount: str) -> JSONResponse:

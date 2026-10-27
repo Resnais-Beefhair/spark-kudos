@@ -426,7 +426,7 @@ wheels = [
 
 [[package]]
 name = "sisu-kudos"
-version = "0.5.9"
+version = "0.5.18"
 source = { editable = "." }
 dependencies = [
     { name = "fastapi" },
