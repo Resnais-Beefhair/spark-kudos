@@ -680,7 +680,9 @@ def run(output):
                         expect(owner).not_to_contain_text("EXAMPLE_CREDENTIAL")
                         expect(owner.locator("img")).to_have_count(0)
                         assert not page.evaluate("Boolean(window.ownerLogXss)")
-                        owner.scroll_into_view_if_needed()
+                        # Log rows can refresh between animation frames; scroll the
+                        # current node atomically rather than pinning an element handle.
+                        owner.evaluate("n => n.scrollIntoView({block: 'nearest'})")
                         assert page.locator("#logs-dialog").evaluate(
                             "n => n.scrollWidth <= n.clientWidth + 1"
                         )
