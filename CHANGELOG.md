@@ -1,6 +1,8 @@
 # Changelog
 
-## 0.5.20 (unreleased)
+## 0.5.20
+
+Includes the previously unpublished local-development changes listed under 0.5.19 below. That version was not a separate public release.
 
 - Add named machine-temperature instruments next to the masthead identity: highest available CPU/GPU reading and a real five-minute trend on a shared 0–100°C scale. Green/amber/red bands agree with the existing temperature thresholds.
 - Keep cached, disconnected and missing readings visibly neutral; leave gaps and missing history empty instead of inventing samples. Temperature instruments open the existing per-host thermal details and retain their DOM nodes during live updates.

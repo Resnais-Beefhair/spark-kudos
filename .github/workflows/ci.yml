@@ -32,6 +32,7 @@ jobs:
           node scripts/test_quotas.cjs
           node scripts/test_activity.cjs
           node scripts/test_telemetry.cjs
+          node scripts/test_header_thermal.cjs
       - run: python scripts/check_public.py
       - run: sisu-kudos --config examples/single-spark.toml --check-config
       - run: sisu-kudos --config examples/two-sparks.toml --check-config
