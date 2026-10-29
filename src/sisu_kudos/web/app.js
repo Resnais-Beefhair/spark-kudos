@@ -10,7 +10,9 @@
     hasModelTelemetry = KudosHosts.hasModelTelemetry,
     featureEnabled = KudosHosts.featureEnabled,
     knownText = KudosI18n.knownProductText;
-  const hostViews = new Map(),
+  let thermalSequence = 0;
+  const thermalViews = new Map(),
+    hostViews = new Map(),
     workRows = new Map(),
     agentResourceRows = new Map(),
     RESOURCE_FETCH_TIMEOUT_MS = 5000,
@@ -172,6 +174,7 @@
     1e3,
   );
   function setConnection(mode, key) {
+    const changed = mode !== ui.connectionMode;
     ui.connectionMode = mode;
     ui.connectionTextKey = key;
     document.documentElement.dataset.activityConnection = mode;
@@ -180,6 +183,7 @@
     const label = n.querySelector("span");
     if (label) label.textContent = t(key);
     else n.textContent = t(key);
+    if (changed && ui.data) renderHeaderTemperatures();
   }
   function quota(key) {
     return ui.data?.agents?.quotas?.[key] || {};
@@ -2155,6 +2159,86 @@
       : t("host.processesCached", { host: host.label || id }));
     return view;
   }
+  function createHeaderThermal(id) {
+    const button = el("button", "header-thermal"),
+      name = el("span", "thermal-name"),
+      state = el("small", "thermal-state"),
+      label = el("span", "thermal-label"),
+      value = el("strong", "thermal-value", "–"),
+      plot = el("span", "thermal-plot"),
+      svg = sv("svg", { viewBox: "0 0 96 32", "aria-hidden": "true" }),
+      defs = sv("defs"),
+      gradientId = `header-thermal-${++thermalSequence}`,
+      gradient = sv("linearGradient", {
+        id: gradientId, gradientUnits: "userSpaceOnUse", x1: 0, x2: 0, y1: 32, y2: 0,
+      });
+    [[0, "--good"], [0.7, "--good"], [0.7, "--copper"], [0.85, "--copper"],
+      [0.85, "--hot"], [1, "--hot"]].forEach(([offset, color]) =>
+      gradient.append(sv("stop", { offset, "stop-color": `var(${color})` })));
+    defs.append(gradient);
+    svg.append(defs);
+    [70, 85].forEach((threshold) => svg.append(sv("path", {
+      class: "thermal-guide", d: `M0 ${32 - threshold * 0.32} H96`,
+    })));
+    const trace = sv("path", { class: "thermal-trace", fill: "none" }),
+      dot = sv("circle", { class: "thermal-dot", r: 2 }),
+      scale = el("span", "thermal-scale");
+    scale.setAttribute("aria-hidden", "true");
+    scale.append(el("span", "", "−5m"), el("span", "", "0–100°C"));
+    svg.append(trace, dot);
+    plot.append(svg, scale);
+    label.append(name, state);
+    button.type = "button";
+    button.dataset.hostInspect = id;
+    button.dataset.hostMetric = "thermal";
+    button.setAttribute("aria-haspopup", "dialog");
+    button.append(label, value, plot);
+    return { button, name, state, value, trace, dot, gradientId };
+  }
+  function renderHeaderTemperatures() {
+    const container = $("#header-temperatures"),
+      entries = hostEntries(ui.data),
+      ids = new Set(entries.map(([id]) => id)),
+      now = Date.now(),
+      anchor = Date.parse(ui.data?.generated_at);
+    container.hidden = entries.length === 0;
+    for (const [id, view] of thermalViews) {
+      if (!ids.has(id)) {
+        view.button.remove();
+        thermalViews.delete(id);
+      }
+    }
+    entries.forEach(([id, host], index) => {
+      if (!thermalViews.has(id)) thermalViews.set(id, createHeaderThermal(id));
+      const view = thermalViews.get(id),
+        summary = KudosTelemetry.thermalSummary(host, now, ui.connectionMode === "live"),
+        label = host.label || id,
+        description = t("thermal.description", {
+          host: label, value: temp(summary.peak), cpu: temp(summary.cpu), gpu: temp(summary.gpu),
+          state: t(`thermal.${summary.state}`),
+        });
+      view.button.dataset.state = summary.state;
+      view.button.dataset.band = summary.band;
+      view.button.title = description;
+      view.button.setAttribute("aria-label", description);
+      setNodeText(view.name, label);
+      setNodeText(view.state, t(`thermal.${summary.state}`));
+      setNodeText(view.value, temp(summary.peak));
+      const trace = KudosTelemetry.historyPath(summary.history, "value", anchor, 300000, 96, 32),
+        points = KudosTelemetry.historyPoints(summary.history, "value", anchor, 300000),
+        last = points.at(-1);
+      if (view.trace.getAttribute("d") !== trace) view.trace.setAttribute("d", trace);
+      view.trace.setAttribute("stroke", summary.state === "fresh"
+        ? `url(#${view.gradientId})` : "var(--muted)");
+      view.dot.setAttribute("visibility", last?.v !== null && last?.v !== undefined ? "visible" : "hidden");
+      if (last?.v !== null && last?.v !== undefined) {
+        view.dot.setAttribute("cx", ((last.t - (anchor - 300000)) / 300000) * 96);
+        view.dot.setAttribute("cy", 32 - clamp(last.v) * 0.32);
+      }
+      const current = container.children[index];
+      if (current !== view.button) container.insertBefore(view.button, current || null);
+    });
+  }
   function renderHosts(d) {
     const entries = hostEntries(d),
       ids = new Set(entries.map(([id]) => id)),
@@ -2555,6 +2639,7 @@
     renderCapacity();
     renderAttention();
     renderHosts(d);
+    renderHeaderTemperatures();
     renderWork();
     renderTimeline();
     renderResources();
@@ -2800,6 +2885,9 @@
   refreshAgentResources();
   setInterval(refreshAgentResources, 1e4);
   setInterval(() => {
-    if (!document.hidden) renderAgentResources(ui.agentResources);
+    if (!document.hidden) {
+      renderAgentResources(ui.agentResources);
+      if (ui.data) renderHeaderTemperatures();
+    }
   }, 1e3);
 })();

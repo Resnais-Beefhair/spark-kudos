@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.20 (unreleased)
+
+- Add named machine-temperature instruments next to the masthead identity: highest available CPU/GPU reading and a real five-minute trend on a shared 0–100°C scale. Green/amber/red bands agree with the existing temperature thresholds.
+- Keep cached, disconnected and missing readings visibly neutral; leave gaps and missing history empty instead of inventing samples. Temperature instruments open the existing per-host thermal details and retain their DOM nodes during live updates.
+- Adapt the instrument strip below the identity at narrow widths; keep English/Finnish labels, keyboard access and collector behavior intact.
+
 ## 0.5.19 (unreleased)
 
 - Restore OpenClaw active-work cards when current lifecycle/writer ownership replaces the legacy running status field. Require a live PID/start-identity lease and exclude lifecycle claims from before that owner started.

@@ -8,6 +8,7 @@ All HTTP threads, browser contexts and the private server are owned and closed h
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import mimetypes
 import threading
@@ -19,6 +20,7 @@ from types import SimpleNamespace
 from urllib.parse import urlsplit
 
 from playwright.sync_api import expect, sync_playwright
+from qa_header_browser import run_header_checks
 from qa_storage_browser import run_storage_checks
 
 from sisu_kudos import __version__
@@ -49,6 +51,7 @@ def fixture(
     log_owner_details=False,
     log_peer=None,
     log_peer_instance=0,
+    thermal_state=None,
 ):
     """Deliberate test fixtures; none of these numbers are real measurements."""
     now = datetime.now(UTC)
@@ -134,6 +137,26 @@ def fixture(
                 "error": "Remote SSH unavailable" if failed else "",
             },
         }
+    if thermal_state:
+        for index, host in enumerate(hosts.values()):
+            host["system"] = copy.deepcopy(system)
+            host["system"]["cpu"]["temperature"] = 42 if index == 0 else 88
+            host["system"]["gpu"]["temperature"] = 48 if index == 0 else 82
+            host["history"] = [
+                {
+                    "at": (now - timedelta(seconds=10 * (29 - i))).isoformat(),
+                    "cpu_temp": 42 if index == 0 else 60 + i,
+                    "gpu_temp": 48 if index == 0 else 55 + i,
+                }
+                for i in range(30)
+            ]
+            if thermal_state == "missing":
+                host["system"]["cpu"]["temperature"] = None
+                host["system"]["gpu"]["temperature"] = None
+            if thermal_state == "empty":
+                host["history"] = []
+            if thermal_state == "single":
+                host["history"] = host["history"][-1:]
     sessions = (
         [
             {
@@ -365,7 +388,7 @@ def measure_work_layout(page):
     }""")
 
 
-def run(output):
+def run(output, *, header_only=False):
     options = {"language": "en", "dual": False, "optional": False, "failed": False}
     stop = threading.Event()
     requests = []
@@ -448,6 +471,18 @@ def run(output):
                 )
                 url = f"http://127.0.0.1:{server.server_port}"
                 page.goto(url)
+                if header_only:
+                    thermal_layout = run_header_checks(page, options, output)
+                    assert not errors, errors
+                    report = {
+                        "version": __version__,
+                        "fixtures": "synthetic only",
+                        "thermal_layout": thermal_layout,
+                        "page_errors": errors,
+                    }
+                    (output / "report.json").write_text(json.dumps(report, indent=2) + "\n")
+                    print(json.dumps(report, indent=2))
+                    return
                 expect(page.locator(".host-panel")).to_have_count(1)
                 expect(page.locator("html")).to_have_attribute("lang", "en")
                 expect(page.locator("#language-select")).to_have_value("en")
@@ -547,8 +582,7 @@ def run(output):
                 )
                 page.locator("#language-select").select_option("en")
                 ticket.evaluate(
-                    "n => { window.qaTaskTicket = n; "
-                    "window.qaTaskGlyph = n.querySelector('svg'); }"
+                    "n => { window.qaTaskTicket = n; window.qaTaskGlyph = n.querySelector('svg'); }"
                 )
                 options.update(conversation_only=True)
                 for language, unavailable, context_label in (
@@ -923,6 +957,11 @@ def run(output):
                 expect(newpage.locator("html")).to_have_attribute("lang", "fi")
                 fresh.close()
                 checks.append("configured Finnish default in a fresh browser")
+                thermal_layout = run_header_checks(page, options, output)
+                checks.append(
+                    "masthead thermals: real-value contract, colors, stale/missing, "
+                    "history gaps, keyboard drilldown and responsive layout"
+                )
                 assert not errors, errors
                 assert "/api/events" in requests
                 report = {
@@ -932,6 +971,7 @@ def run(output):
                     "capacity_layout": capacity_layout,
                     "work_layout": work_layout,
                     "storage_layout": storage_layout,
+                    "thermal_layout": thermal_layout,
                     "page_errors": errors,
                     "request_failures": failures,
                 }
@@ -951,4 +991,6 @@ def run(output):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, default=Path("artifacts/browser"))
-    run(parser.parse_args().output)
+    parser.add_argument("--header-only", action="store_true")
+    args = parser.parse_args()
+    run(args.output, header_only=args.header_only)

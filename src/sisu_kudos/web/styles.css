@@ -2459,3 +2459,114 @@ html[data-activity-connection="stale"] .ticket-activity * {
     column-gap: 24px;
   }
 }
+
+/* Paired thermal instruments beside the identity, not another dashboard card. */
+.masthead {
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  column-gap: clamp(18px, 2vw, 36px);
+}
+.masthead:has(#header-temperatures[hidden]) {
+  grid-template-columns: auto 1fr auto;
+}
+.header-temperatures {
+  display: flex;
+  gap: clamp(16px, 2vw, 32px);
+  min-width: 0;
+}
+.header-thermal {
+  --thermal-color: var(--muted);
+  display: grid;
+  grid-template-columns: minmax(48px, auto) minmax(58px, 96px);
+  grid-template-rows: 14px 26px;
+  column-gap: 12px;
+  align-items: center;
+  flex: 0 1 182px;
+  min-width: 0;
+  min-height: 44px;
+  padding: 2px 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--thermal-color);
+  text-align: left;
+  cursor: pointer;
+}
+.header-thermal[data-band="safe"] { --thermal-color: var(--good); }
+.header-thermal[data-band="warm"] { --thermal-color: var(--copper); }
+.header-thermal[data-band="hot"] { --thermal-color: var(--hot); }
+.header-thermal:hover .thermal-name { color: var(--ink); }
+.header-thermal:focus-visible { outline: 2px solid var(--signal); outline-offset: 5px; }
+.thermal-label { display: flex; align-items: baseline; gap: 7px; min-width: 0; }
+.thermal-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--muted);
+  font: 10px ui-monospace, monospace;
+  letter-spacing: 0.04em;
+}
+.thermal-state { font: 7px ui-monospace, monospace; white-space: nowrap; color: var(--faint); }
+.thermal-value {
+  grid-column: 1;
+  font: 21px ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+  letter-spacing: -0.06em;
+}
+.thermal-plot { grid-column: 2; grid-row: 1 / 3; min-width: 0; align-self: stretch; }
+.thermal-plot svg { display: block; width: 100%; height: 30px; overflow: visible; }
+.thermal-trace { stroke-width: 1.8; vector-effect: non-scaling-stroke; stroke-linecap: round; }
+.thermal-guide { stroke: var(--line); stroke-width: 0.5; stroke-dasharray: 2 4; fill: none; }
+.thermal-dot { fill: var(--thermal-color); }
+.thermal-scale {
+  display: flex;
+  justify-content: space-between;
+  gap: 4px;
+  color: var(--faint);
+  font: 7px ui-monospace, monospace;
+  white-space: nowrap;
+}
+.header-thermal[data-state="stale"] .thermal-trace { stroke-dasharray: 3 3; }
+.header-thermal[data-state="stale"] .thermal-state,
+.header-thermal[data-state="unknown"] .thermal-state { color: var(--muted); }
+@media (max-width: 1350px) {
+  .masthead { grid-template-columns: auto minmax(0, 1fr) auto; column-gap: 20px; }
+  .header-stats { display: none; }
+  .head-right { gap: 16px; }
+}
+@media (max-width: 1100px) {
+  .masthead { grid-template-columns: auto minmax(0, 1fr) auto; }
+}
+@media (max-width: 1000px) {
+  .masthead {
+    height: auto;
+    min-height: 68px;
+    padding-block: 10px;
+    grid-template-columns: 1fr auto;
+    row-gap: 9px;
+  }
+  .header-temperatures {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    border-top: 1px solid var(--line2);
+    padding-top: 8px;
+  }
+  .header-thermal { flex: 0 1 190px; }
+  .head-right { grid-column: 2; grid-row: 1; }
+}
+@media (max-width: 680px) {
+  .masthead { column-gap: 8px; }
+  .brand { gap: 8px; }
+  .brand strong { font-size: 12px; }
+  .mark { width: 22px; }
+  .head-right { gap: 10px; }
+  .head-right .connection { font-size: 9px; gap: 6px; letter-spacing: 0; }
+  .header-temperatures { gap: 24px; }
+  .header-thermal { flex: 1 1 0; grid-template-columns: minmax(55px, auto) minmax(45px, 1fr); column-gap: 9px; }
+  .thermal-label { gap: 5px; }
+}
+@media (max-width: 360px) {
+  .connection span { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); }
+  .header-temperatures { gap: 16px; }
+  .thermal-state { font-size: 6px; }
+}
