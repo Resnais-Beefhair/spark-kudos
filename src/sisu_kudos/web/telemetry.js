@@ -105,6 +105,28 @@
       return state("file", "activity.files", true);
     return state("tool", "activity.tool", true);
   }
+  function thermalSummary(host, now = Date.now(), connected = true) {
+    const reading = (value) => typeof value === "number" && Number.isFinite(value) &&
+        value >= 0 && value <= 150 ? value : null,
+      peak = (...values) => {
+        const known = values.map(reading).filter((value) => value !== null);
+        return known.length ? Math.max(...known) : null;
+      },
+      cpu = reading(host?.system?.cpu?.temperature),
+      gpu = reading(host?.system?.gpu?.temperature),
+      value = peak(cpu, gpu),
+      age = now - Date.parse(host?.generated_at),
+      stale = !connected || host?.health?.ok !== true || host?.health?.stale ||
+        !Number.isFinite(age) || age < -5000 || age > 45000,
+      state = value === null ? "unknown" : stale ? "stale" : "fresh";
+    return {
+      cpu, gpu, peak: value, state,
+      band: state !== "fresh" ? "unknown" : value >= 85 ? "hot" : value >= 70 ? "warm" : "safe",
+      history: (Array.isArray(host?.history) ? host.history : []).slice(-450).map((point) => ({
+        at: point.at, value: peak(point.cpu_temp, point.gpu_temp),
+      })),
+    };
+  }
   const api = {
     finite,
     leaders,
@@ -115,6 +137,7 @@
     originLabel,
     taskLabel,
     agentActivity,
+    thermalSummary,
   };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   else root.KudosTelemetry = api;

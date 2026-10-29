@@ -262,3 +262,198 @@ def test_malformed_json_fails_visibly(store):
         db.execute("UPDATE session_nodes SET entry_json='broken'")
     with pytest.raises(RuntimeError):
         reader(home).collect()
+
+
+@pytest.fixture
+def lifecycle(store, monkeypatch):
+    home, path = store
+    monkeypatch.setattr(
+        "sisu_kudos.openclaw_sessions._owner_started_ms", lambda _: NOW - 60000, raising=False
+    )
+    update(
+        path,
+        status=None,
+        lifecycleRunId="current-run",
+        activeWriterRunId="current-run",
+        startedAt=NOW - 10000,
+        endedAt=None,
+        abortedLastRun=False,
+    )
+    return home, path
+
+
+def trace(path, kind, *, run="current-run", session="current", **data):
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "CREATE TABLE IF NOT EXISTS trajectory_runtime_events "
+            "(session_id TEXT,seq INTEGER PRIMARY KEY AUTOINCREMENT,run_id TEXT,"
+            "event_json TEXT,created_at INTEGER)"
+        )
+        db.execute(
+            "INSERT INTO trajectory_runtime_events(session_id,run_id,event_json,created_at) "
+            "VALUES (?,?,?,?)",
+            (
+                session,
+                run,
+                json.dumps(
+                    {
+                        "type": kind,
+                        "modelId": "current-observed-model",
+                        "provider": "observed",
+                        "data": data,
+                        "prompt": "PRIVATE TRAJECTORY PROMPT",
+                    }
+                ),
+                NOW,
+            ),
+        )
+
+
+def test_active_lifecycle_without_legacy_status_is_running(lifecycle):
+    home, _ = lifecycle
+    assert reader(home).collect()[0].status == "running"
+
+
+def test_current_tool_metadata_without_content_or_config_model(lifecycle):
+    home, path = lifecycle
+    trace(path, "tool.call", name="bash", arguments="PRIVATE COMMAND", output="PRIVATE RESULT")
+    row = reader(home).collect()[0]
+    assert (row.status, row.current_tool, row.model) == ("tool", "bash", "current-observed-model")
+    public = json.dumps(safe_session(row))
+    assert "PRIVATE" not in public and "not-observed" not in public
+
+
+@pytest.mark.parametrize(
+    "kind,data,expected",
+    [
+        ("tool.result", {"name": "bash"}, "running"),
+        ("model.completed", {}, "running"),
+        ("session.ended", {"status": "success"}, "idle"),
+        ("session.ended", {"status": "error"}, "error"),
+    ],
+)
+def test_current_lifecycle_events_clear_tool_or_finish(lifecycle, kind, data, expected):
+    home, path = lifecycle
+    trace(path, "tool.call", name="bash")
+    trace(path, kind, **data)
+    row = reader(home).collect()[0]
+    assert row.status == expected and row.current_tool == ""
+
+
+@pytest.mark.parametrize(
+    "values,expected",
+    [
+        ({"activeWriterRunId": "old-run"}, "unknown"),
+        ({"activeWriterRunId": None}, "unknown"),
+        ({"lifecycleRunId": None}, "unknown"),
+        ({"abortedLastRun": True}, "unknown"),
+        ({"startedAt": None}, "unknown"),
+        ({"endedAt": NOW}, "idle"),
+        ({"endedAt": NOW, "abortedLastRun": True}, "error"),
+        ({"status": "failed"}, "error"),
+        ({"status": "done"}, "idle"),
+    ],
+)
+def test_lifecycle_cannot_revive_terminal_or_unowned_run(lifecycle, values, expected):
+    home, path = lifecycle
+    update(path, **values)
+    trace(path, "tool.call", name="bash")
+    row = reader(home).collect()[0]
+    assert row.status == expected and row.current_tool == ""
+
+
+def test_lifecycle_from_before_current_gateway_is_not_live(lifecycle, monkeypatch):
+    home, _ = lifecycle
+    monkeypatch.setattr("sisu_kudos.openclaw_sessions._owner_started_ms", lambda _: NOW)
+    assert reader(home).collect()[0].status == "unknown"
+
+
+def test_dead_lease_does_not_animate_current_tool(lifecycle):
+    home, path = lifecycle
+    with sqlite3.connect(home / "state/openclaw.sqlite") as db:
+        db.execute("UPDATE agent_database_leases SET owner_start_time=1")
+    trace(path, "tool.call", name="bash")
+    assert reader(home).collect()[0].status == "unknown"
+
+
+def test_old_run_and_old_session_activity_are_not_current(lifecycle):
+    home, path = lifecycle
+    trace(path, "tool.call", run="old-run", name="bash")
+    trace(path, "tool.call", session="old-session", name="bash")
+    row = reader(home).collect()[0]
+    assert row.status == "running" and row.current_tool == ""
+
+
+def test_retained_writer_after_completion_does_not_animate(lifecycle):
+    home, path = lifecycle
+    update(path, lifecycleRunId=None, endedAt=NOW)
+    assert reader(home).collect()[0].status == "idle"
+
+
+def test_recent_update_alone_is_not_activity(store):
+    home, path = store
+    update(path, status=None)
+    assert reader(home).collect()[0].status == "unknown"
+
+
+def test_long_lifecycle_not_filtered_by_age(lifecycle, monkeypatch):
+    home, path = lifecycle
+    monkeypatch.setattr("sisu_kudos.openclaw_sessions._owner_started_ms", lambda _: NOW - 100000000)
+    update(path, startedAt=NOW - 90000000)
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE session_nodes SET updated_at=?", (NOW - 90000000,))
+    assert reader(home).collect()[0].status == "running"
+
+
+@pytest.mark.parametrize("late", ["model.completed", "tool.call", "tool.result"])
+def test_terminal_event_dominates_late_events(lifecycle, late):
+    home, path = lifecycle
+    trace(path, "session.ended", status="success")
+    trace(path, late, name="bash")
+    row = reader(home).collect()[0]
+    assert row.status == "idle" and row.current_tool == ""
+
+
+@pytest.mark.parametrize("terminal", ["done", "failed", "interrupted", None])
+def test_old_terminal_lifecycles_do_not_exhaust_inventory(lifecycle, terminal):
+    home, path = lifecycle
+    old = NOW - 90000000
+    entry = json.dumps(
+        {
+            "status": terminal,
+            "startedAt": old - 10000,
+            "endedAt": old,
+            "activeWriterRunId": "retained-run",
+            "lifecycleRunId": "retained-run",
+        }
+    )
+    with sqlite3.connect(path) as db:
+        db.executemany(
+            "INSERT INTO session_nodes "
+            "(session_key,current_session_id,updated_at,archived_at,entry_valid,entry_json) "
+            "VALUES (?,?,?,?,?,?)",
+            [
+                (f"agent:primary:old:{i}", f"old-{i}", old, None, 1, entry)
+                for i in range(200)
+            ],
+        )
+    rows = reader(home).collect()
+    assert len(rows) == 1 and rows[0].status == "running"
+
+
+@pytest.mark.parametrize("field", ["modelId", "provider"])
+@pytest.mark.parametrize(
+    "value", [{"prompt": "PRIVATE_MODEL_PAYLOAD"}, ["PRIVATE_LIST"], True, 123]
+)
+def test_non_string_trajectory_identifiers_do_not_reach_public_fields(lifecycle, field, value):
+    home, path = lifecycle
+    trace(path, "tool.call", name="bash")
+    with sqlite3.connect(path) as db:
+        db.execute(
+            "UPDATE trajectory_runtime_events SET event_json=json_set(event_json,?,json(?))",
+            (f"$.{field}", json.dumps(value)),
+        )
+    row = reader(home).collect()[0]
+    assert row.status == "tool"
+    assert "PRIVATE" not in json.dumps(safe_session(row))
+    assert (row.model if field == "modelId" else row.provider) not in {"1", "123"}

@@ -1,5 +1,19 @@
 # Changelog
 
+## 0.5.20
+
+Includes the previously unpublished local-development changes listed under 0.5.19 below. That version was not a separate public release.
+
+- Add named machine-temperature instruments next to the masthead identity: highest available CPU/GPU reading and a real five-minute trend on a shared 0–100°C scale. Green/amber/red bands agree with the existing temperature thresholds.
+- Keep cached, disconnected and missing readings visibly neutral; leave gaps and missing history empty instead of inventing samples. Temperature instruments open the existing per-host thermal details and retain their DOM nodes during live updates.
+- Adapt the instrument strip below the identity at narrow widths; keep English/Finnish labels, keyboard access and collector behavior intact.
+
+## 0.5.19 (unreleased)
+
+- Restore OpenClaw active-work cards when current lifecycle/writer ownership replaces the legacy running status field. Require a live PID/start-identity lease and exclude lifecycle claims from before that owner started.
+- Derive current tool and observed model/provider only from bounded structured trajectory metadata for the exact current session and run. Never read arguments, results or message bodies; completed, aborted and mismatched runs do not animate as active work.
+- Retain legacy-state compatibility and visible source failures, and cover missing optional trajectory tables, terminal transitions and stale/reused owners.
+
 ## 0.5.18
 
 Includes the previously unpublished local-development changes listed under 0.5.12–0.5.17 below. Those versions were not separate public releases.

@@ -90,6 +90,16 @@ def test_work_cards_hide_missing_tasks_instead_of_placeholder_prose():
     assert "row.task.hidden = !task" in render
 
 
+def test_header_temperatures_are_observed_host_data_and_keyboard_inspectable():
+    html = (ROOT / "index.html").read_text()
+    js = (ROOT / "app.js").read_text()
+    assert html.index('class="brand"') < html.index('id="header-temperatures"')
+    assert html.index('id="header-temperatures"') < html.index('class="head-right"')
+    assert 'button.dataset.hostMetric = "thermal"' in js
+    assert "KudosTelemetry.thermalSummary" in js
+    subprocess.run(["node", str(PROJECT_ROOT / "scripts/test_header_thermal.cjs")], check=True)
+
+
 def test_disk_space_popup_uses_usage_but_legacy_api_remains_available():
     js = (ROOT / "app.js").read_text()
     server = (ROOT.parent / "app.py").read_text()
