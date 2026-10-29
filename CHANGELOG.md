@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.5.19 (unreleased)
+
+- Restore OpenClaw active-work cards when current lifecycle/writer ownership replaces the legacy running status field. Require a live PID/start-identity lease and exclude lifecycle claims from before that owner started.
+- Derive current tool and observed model/provider only from bounded structured trajectory metadata for the exact current session and run. Never read arguments, results or message bodies; completed, aborted and mismatched runs do not animate as active work.
+- Retain legacy-state compatibility and visible source failures, and cover missing optional trajectory tables, terminal transitions and stale/reused owners.
+
 ## 0.5.18
 
 Includes the previously unpublished local-development changes listed under 0.5.12–0.5.17 below. Those versions were not separate public releases.

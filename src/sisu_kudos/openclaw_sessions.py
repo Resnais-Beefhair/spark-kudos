@@ -8,12 +8,16 @@ are changed. Unknown schemas/locators fail visibly instead of claiming no work.
 
 from __future__ import annotations
 
+import math
+import os
 import re
 import sqlite3
 import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
+
+import psutil
 
 from .adapters import safe_location
 from .crons import _connect, _read_json, process_fingerprint
@@ -27,6 +31,10 @@ FIELDS = (
     "status",
     "sessionStartedAt",
     "startedAt",
+    "endedAt",
+    "abortedLastRun",
+    "activeWriterRunId",
+    "lifecycleRunId",
     "model",
     "modelProvider",
     "thinkingLevel",
@@ -40,7 +48,15 @@ FIELDS = (
     "label",
     "chatType",
 )
-PROJECTION = ", ".join(f"json_extract(entry_json, '$.{field}') AS {field}" for field in FIELDS)
+PROJECTION = ", ".join(
+    (
+        f"CASE WHEN json_type(entry_json, '$.{field}')='text' "
+        f"THEN json_extract(entry_json, '$.{field}') END AS {field}"
+        if field in {"model", "modelProvider"}
+        else f"json_extract(entry_json, '$.{field}') AS {field}"
+    )
+    for field in FIELDS
+)
 
 
 def _iso(value: Any) -> str:
@@ -51,6 +67,70 @@ def _iso(value: Any) -> str:
 
 def _number(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) and value >= 0 else None
+
+
+def _timestamp(value: Any) -> float | None:
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return float(value) if math.isfinite(value) and value > 0 else None
+    return None
+
+
+def _owner_started_ms(ticks: int) -> float:
+    return (psutil.boot_time() + ticks / os.sysconf("SC_CLK_TCK")) * 1000
+
+
+def _status(row: sqlite3.Row, owner_started: float | None) -> str:
+    status = {
+        "queued": "waiting",
+        "running": "running",
+        "done": "idle",
+        "failed": "error",
+        "killed": "error",
+        "timeout": "error",
+        "interrupted": "error",
+    }.get(row["status"], "unknown")
+    if status in {"idle", "error"}:
+        return status
+    started, ended = _timestamp(row["startedAt"]), _timestamp(row["endedAt"])
+    if started and ended and ended >= started:
+        return "error" if row["abortedLastRun"] else "idle"
+    # Current OpenClaw omits status while a writer owns the current lifecycle.
+    # A recent update or a retained writer ID alone does NOT prove active work.
+    run = row["lifecycleRunId"]
+    if (
+        row["status"] is None
+        and isinstance(run, str)
+        and 0 < len(run) <= 128
+        and run == row["activeWriterRunId"]
+        and started
+        and owner_started is not None
+        and started >= owner_started - 1000
+        and not row["abortedLastRun"]
+    ):
+        status = "running"
+    if status in {"running", "waiting"} and owner_started is None:
+        return "unknown"
+    return status
+
+
+def _activity(db: sqlite3.Connection, row: sqlite3.Row) -> sqlite3.Row | None:
+    run = row["lifecycleRunId"]
+    if not isinstance(run, str) or run != row["activeWriterRunId"]:
+        return None
+    # Never load arguments, results or messages, only structured current-run metadata.
+    return db.execute(
+        "SELECT json_extract(event_json,'$.type') AS type, "
+        "json_extract(event_json,'$.data.name') AS tool, "
+        "json_extract(event_json,'$.data.status') AS status, "
+        "CASE WHEN json_type(event_json,'$.modelId')='text' "
+        "THEN json_extract(event_json,'$.modelId') END AS model, "
+        "CASE WHEN json_type(event_json,'$.provider')='text' "
+        "THEN json_extract(event_json,'$.provider') END AS provider, created_at "
+        "FROM trajectory_runtime_events WHERE session_id=? AND run_id=? "
+        # Terminal evidence remains authoritative even if late events are appended.
+        "ORDER BY (json_extract(event_json,'$.type')='session.ended') DESC, seq DESC LIMIT 1",
+        (row["current_session_id"], run),
+    ).fetchone()
 
 
 class ReadOnlyOpenClawCollector:
@@ -97,7 +177,7 @@ class ReadOnlyOpenClawCollector:
             targets.append((agent, path, agent in entries))
         return targets
 
-    def _live_owners(self) -> set[tuple[str, Path]]:
+    def _live_owners(self) -> dict[tuple[str, Path], float]:
         path = self.home / "state/openclaw.sqlite"
         if not path.resolve().is_relative_to(self.home):
             raise ValueError("OpenClaw lease store escapes state directory")
@@ -109,14 +189,14 @@ class ReadOnlyOpenClawCollector:
             ).fetchall()
         if len(rows) > MAX_AGENTS * 8:
             raise ValueError("OpenClaw lease inventory limit exceeded")
-        live = set()
+        live = {}
         for row in rows:
             expected = row["owner_start_time"]
             if expected is not None and expected == process_fingerprint(row["owner_pid"]):
                 path = Path(row["path"])
                 if not path.is_absolute():
                     path = self.home / path
-                live.add((row["agent_id"], path.resolve()))
+                live[(row["agent_id"], path.resolve())] = _owner_started_ms(expected)
         return live
 
     def collect(self) -> list[Any]:
@@ -125,8 +205,7 @@ class ReadOnlyOpenClawCollector:
         except (OSError, sqlite3.Error, ValueError, TypeError, KeyError, OverflowError) as error:
             # Do not surface SQL/path/config content through MonitorService's error field.
             raise RuntimeError(
-                "Read-only OpenClaw session source is unavailable "
-                f"({type(error).__name__})"
+                f"Read-only OpenClaw session source is unavailable ({type(error).__name__})"
             ) from error
         self.last_good = rows
         return rows
@@ -145,31 +224,50 @@ class ReadOnlyOpenClawCollector:
             with _connect(path) as db:
                 # Invalid current rows must cause a visible source error, not disappear.
                 rows = db.execute(
-                    f"SELECT session_key,current_session_id,updated_at,entry_valid,{PROJECTION} "
-                    "FROM session_nodes WHERE archived_at IS NULL AND "
-                    "(updated_at>=? OR json_extract(entry_json,'$.status')='running') "
+                    # The CTE contains only the whitelist, never raw entry_json.
+                    "WITH current AS (SELECT session_key,current_session_id,updated_at,"
+                    f"entry_valid,{PROJECTION} FROM session_nodes WHERE archived_at IS NULL) "
+                    "SELECT * FROM current WHERE updated_at>=? OR (("
+                    "status IN ('running','queued') OR (status IS NULL "
+                    "AND typeof(lifecycleRunId)='text' "
+                    "AND length(lifecycleRunId) BETWEEN 1 AND 128 "
+                    "AND lifecycleRunId=activeWriterRunId AND startedAt>0 "
+                    "AND typeof(startedAt) IN ('integer','real') "
+                    "AND COALESCE(abortedLastRun,0)=0)) "
+                    "AND NOT COALESCE(typeof(endedAt) IN ('integer','real') "
+                    "AND typeof(startedAt) IN ('integer','real') AND endedAt>=startedAt,0)) "
                     "ORDER BY updated_at DESC LIMIT ?",
                     (now - 86_400_000, MAX_SESSIONS + 1),
                 ).fetchall()
-            if len(sessions) + len(rows) > MAX_SESSIONS:
-                raise ValueError("OpenClaw session inventory limit exceeded")
+                if len(sessions) + len(rows) > MAX_SESSIONS:
+                    raise ValueError("OpenClaw session inventory limit exceeded")
+                has_activity = db.execute(
+                    "SELECT 1 FROM sqlite_master "
+                    "WHERE type='table' AND name='trajectory_runtime_events'"
+                ).fetchone()
+                activities = {
+                    row["current_session_id"]: _activity(db, row)
+                    for row in rows
+                    if has_activity and _status(row, live.get((agent, path.resolve()))) == "running"
+                }
             for row in rows:
                 if row["entry_valid"] != 1 or not row["current_session_id"]:
                     raise ValueError("Invalid OpenClaw session metadata")
                 key = row["session_key"]
                 if not key.startswith(f"agent:{agent}:"):
                     raise ValueError("Unsupported OpenClaw session owner")
-                state = row["status"]
-                status = {
-                    "running": "running",
-                    "done": "idle",
-                    "failed": "error",
-                    "killed": "error",
-                    "timeout": "error",
-                    "interrupted": "error",
-                }.get(state, "unknown")
-                if status == "running" and (agent, path.resolve()) not in live:
-                    status = "unknown"  # Dead/reused owner must not animate as live work.
+                status = _status(row, live.get((agent, path.resolve())))
+                activity = activities.get(row["current_session_id"])
+                tool = ""
+                if activity:
+                    if activity["type"] == "session.ended":
+                        status = "idle" if activity["status"] == "success" else "error"
+                    elif (
+                        activity["type"] == "tool.call"
+                        and isinstance(activity["tool"], str)
+                        and re.fullmatch(r"[A-Za-z][A-Za-z0-9_.:-]{0,95}", activity["tool"])
+                    ):
+                        status, tool = "tool", activity["tool"]
                 location = row["groupChannel"]
                 if not location:
                     display = row["displayName"] or ""
@@ -184,8 +282,12 @@ class ReadOnlyOpenClawCollector:
                         session_id=row["current_session_id"],
                         session_key=key,
                         status=status,
-                        model=str(row["model"] or "—"),
-                        provider=str(row["modelProvider"] or "—"),
+                        model=str((activity["model"] if activity else None) or row["model"] or "—"),
+                        provider=str(
+                            (activity["provider"] if activity else None)
+                            or row["modelProvider"]
+                            or "—"
+                        ),
                         title=title,
                         task_preview=title,
                         source=str(row["chatType"] or ""),
@@ -194,6 +296,7 @@ class ReadOnlyOpenClawCollector:
                         task_started_at=_iso(row["startedAt"]) or _iso(row["sessionStartedAt"]),
                         updated_at=_iso(row["updated_at"]),
                         age_seconds=max(0, now - row["updated_at"]) / 1000,
+                        current_tool=tool,
                         reasoning_effort=str(row["thinkingLevel"] or row["reasoningLevel"] or ""),
                         input_tokens=_number(row["inputTokens"]),
                         output_tokens=_number(row["outputTokens"]),
